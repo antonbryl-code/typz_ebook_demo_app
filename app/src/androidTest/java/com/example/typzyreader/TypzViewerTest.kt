@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 import android.net.Uri
 import androidx.compose.foundation.layout.Box
@@ -27,27 +27,23 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 @RunWith(AndroidJUnit4::class)
-class EpubstViewerTest {
+class TypzViewerTest {
     @get:Rule
     val compose = createComposeRule()
 
-    private fun writeBundle(
+    private fun writeTypz(
         mainTyp: String = """
-            #let width = sys.inputs.at("epubst-width", default: none)
+            #let width = sys.inputs.at("ebook-width", default: none)
             #set page(width: eval(width), height: auto) if width != none
             Hello
         """.trimIndent(),
     ): File {
         val files = mapOf(
-            "META-INF/container.xml" to """
-                <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
-                  <rootfiles><rootfile full-path="main.typ"/></rootfiles>
-                </container>
-            """.trimIndent(),
+            "typst.toml" to "[project]\nentrypoint = \"main.typ\"\n",
             "main.typ" to mainTyp,
         )
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val file = File(context.cacheDir, "viewer-test.epubst")
+        val file = File(context.cacheDir, "viewer-test.typz")
         ZipOutputStream(file.outputStream()).use { zip ->
             for ((name, text) in files) {
                 zip.putNextEntry(ZipEntry(name))
@@ -70,10 +66,10 @@ class EpubstViewerTest {
 
     @Test
     fun recompilesWhenWidthChanges() {
-        val uri = Uri.fromFile(writeBundle())
+        val uri = Uri.fromFile(writeTypz())
         var width by mutableStateOf(400.dp)
         compose.setContent {
-            Box(Modifier.width(width)) { EpubstViewer(initialUri = uri) }
+            Box(Modifier.width(width)) { TypzViewer(initialUri = uri) }
         }
         // 400dp = 400 CSS px = 300pt, and the document lays out at exactly that width.
         waitForDocument("1 page laid out for a 300.00pt wide view: 300 × ")
@@ -84,9 +80,9 @@ class EpubstViewerTest {
 
     @Test
     fun showsTypstErrorsInPlaceOfTheDocument() {
-        val uri = Uri.fromFile(writeBundle(mainTyp = "= Title\n\n#undefined-function()"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = "= Title\n\n#undefined-function()"))
         compose.setContent {
-            Box(Modifier.width(400.dp)) { EpubstViewer(initialUri = uri) }
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         compose.waitUntil(timeoutMillis = 15_000) {
             compose.onAllNodesWithText("main.typ:3:2: unknown variable", substring = true)
@@ -97,19 +93,19 @@ class EpubstViewerTest {
 
     @Test
     fun promptsToOpenFileWhenNoneIsOpen() {
-        compose.setContent { EpubstViewer(initialUri = null) }
+        compose.setContent { TypzViewer(initialUri = null) }
         compose.onNodeWithText("Open file").assertExists()
         compose.onNodeWithContentDescription("Open file").assertDoesNotExist() // no toolbar
     }
 
     @Test
     fun showsFileNameAndOpenButtonInToolbar() {
-        val uri = Uri.fromFile(writeBundle())
+        val uri = Uri.fromFile(writeTypz())
         compose.setContent {
-            Box(Modifier.width(400.dp)) { EpubstViewer(initialUri = uri) }
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         waitForDocument("1 page laid out")
-        compose.onNodeWithText("viewer-test.epubst").assertExists()
+        compose.onNodeWithText("viewer-test.typz").assertExists()
         compose.onNodeWithContentDescription("Open file").assertExists()
         compose.onNodeWithText("Open file").assertDoesNotExist() // the prompt is gone
         compose.onNodeWithContentDescription("Show warnings").assertDoesNotExist()
@@ -117,20 +113,20 @@ class EpubstViewerTest {
 
     @Test
     fun prefersDocumentTitleToFileName() {
-        val uri = Uri.fromFile(writeBundle(mainTyp = "#set document(title: \"My Book\")\nHello"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = "#set document(title: \"My Book\")\nHello"))
         compose.setContent {
-            Box(Modifier.width(400.dp)) { EpubstViewer(initialUri = uri) }
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         waitForDocument("1 page laid out")
         compose.onNodeWithText("My Book").assertExists()
-        compose.onNodeWithText("viewer-test.epubst").assertDoesNotExist()
+        compose.onNodeWithText("viewer-test.typz").assertDoesNotExist()
     }
 
     @Test
     fun showsWarningsOnRequest() {
-        val uri = Uri.fromFile(writeBundle(mainTyp = "#set text(font: \"No Such Font\")\nHello"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = "#set text(font: \"No Such Font\")\nHello"))
         compose.setContent {
-            Box(Modifier.width(400.dp)) { EpubstViewer(initialUri = uri) }
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         waitForDocument("1 page laid out")
         compose.onNodeWithText("unknown font family", substring = true).assertDoesNotExist()
@@ -140,10 +136,10 @@ class EpubstViewerTest {
 
     @Test
     fun reopensDocumentAfterStateRestoration() {
-        val uri = Uri.fromFile(writeBundle())
+        val uri = Uri.fromFile(writeTypz())
         val restoration = StateRestorationTester(compose)
         restoration.setContent {
-            Box(Modifier.width(400.dp)) { EpubstViewer(initialUri = uri) }
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         waitForDocument("1 page laid out for a 300.00pt wide view")
 

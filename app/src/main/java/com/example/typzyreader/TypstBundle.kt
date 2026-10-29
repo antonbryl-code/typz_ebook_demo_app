@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 import java.io.File
 import java.io.IOException
@@ -25,8 +25,8 @@ class TypstBundle private constructor(
     private var handle: Long,
     private val packageCache: File?,
 ) : AutoCloseable {
-    val rootfile: String
-        @Synchronized get() = TypstNative.bundleRootfile(checkOpen())
+    val entrypoint: String
+        @Synchronized get() = TypstNative.bundleEntrypoint(checkOpen())
 
     val fileCount: Int
         @Synchronized get() = TypstNative.bundleFileCount(checkOpen())
@@ -36,11 +36,11 @@ class TypstBundle private constructor(
     fun fileSize(path: String): Long = TypstNative.bundleFileSize(checkOpen(), path)
 
     /**
-     * Compiles the rootfile and renders each page to SVG. Slow (especially the first call in a
+     * Compiles the entrypoint and renders each page to SVG. Slow (especially the first call in a
      * process, which scans fonts), so call it off the main thread.
      *
      * The view's geometry is offered to the document as `sys.inputs` strings in Typst length
-     * syntax: `epubst-width` ("[widthPt]pt") and `epubst-margin` ("[marginPt]pt"). Documents
+     * syntax: `ebook-width` ("[widthPt]pt") and `ebook-margin` ("[marginPt]pt"). Documents
      * that support reflowing use them to lay out pageless at that width; others render as
      * authored. See viewer_inputs.rs for an example `conf` function.
      *
@@ -106,10 +106,10 @@ class TypstBundle private constructor(
          * [packageCache] (and found there by later bundles); without it, only packages bundled
          * under `packages/<namespace>/<name>/<version>/` are available.
          */
-        fun open(contents: EpubstContents, packageCache: File? = null): TypstBundle {
+        fun open(contents: TypzContents, packageCache: File? = null): TypstBundle {
             val paths = contents.files.keys.toTypedArray()
             val data = Array(paths.size) { contents.files.getValue(paths[it]) }
-            val handle = TypstNative.openBundle(paths, data, contents.rootfile, packageCache?.path)
+            val handle = TypstNative.openBundle(paths, data, contents.entrypoint, packageCache?.path)
             return TypstBundle(handle, packageCache)
         }
     }

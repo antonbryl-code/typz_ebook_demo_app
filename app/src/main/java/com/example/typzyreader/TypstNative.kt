@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 /**
  * Kotlin side of the Rust library built from app/src/main/rust.
@@ -6,7 +6,7 @@ package com.example.epubstdemo
  */
 internal object TypstNative {
     init {
-        System.loadLibrary("epubst_typst")
+        System.loadLibrary("typzyreader")
     }
 
     /**
@@ -16,11 +16,16 @@ internal object TypstNative {
     external fun openBundle(
         paths: Array<String>,
         contents: Array<ByteArray>,
-        rootfile: String,
+        entrypoint: String,
         packageCache: String?,
     ): Long
     external fun closeBundle(handle: Long)
-    external fun bundleRootfile(handle: Long): String
+    /**
+     * The `entrypoint` in the `[project]` section of a typst.toml. Throws [TypzFormatException]
+     * if the manifest is malformed or names none.
+     */
+    external fun manifestEntrypoint(manifest: ByteArray): String
+    external fun bundleEntrypoint(handle: Long): String
     external fun bundleFileCount(handle: Long): Int
     /** Size in bytes of the file at [path], or -1 if the bundle has no such file. */
     external fun bundleFileSize(handle: Long, path: String): Long

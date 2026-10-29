@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -35,7 +35,7 @@ class PackagesTest {
 
     private fun open(vararg files: Pair<String, String>, cache: File? = this.cache): TypstBundle {
         val map = files.associate { (path, text) -> path to text.toByteArray() }
-        return TypstBundle.open(EpubstContents(files.first().first, map), cache)
+        return TypstBundle.open(TypzContents(files.first().first, map), cache)
     }
 
     private fun text(document: TypstDocument) =

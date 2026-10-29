@@ -5,6 +5,7 @@
 
 mod bundle;
 mod embedded_fonts;
+mod manifest;
 mod packages;
 mod text_layer;
 mod viewer_inputs;
@@ -21,7 +22,8 @@ use bundle::{Bundle, CompileFailure};
 use viewer_inputs::ViewerGeometry;
 
 const ILLEGAL_ARGUMENT: &str = "java/lang/IllegalArgumentException";
-const COMPILE_EXCEPTION: &str = "com/example/epubstdemo/TypstCompileException";
+const COMPILE_EXCEPTION: &str = "com/example/typzyreader/TypstCompileException";
+const FORMAT_EXCEPTION: &str = "com/example/typzyreader/TypzFormatException";
 
 /// A failure to report to Java as an exception of the given class.
 struct Error {
@@ -97,12 +99,12 @@ fn bundle_mut<'a>(handle: jlong) -> Result<&'a mut Bundle, Error> {
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_epubstdemo_TypstNative_openBundle<'local>(
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_openBundle<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     paths: JObjectArray<'local>,
     contents: JObjectArray<'local>,
-    rootfile: JString<'local>,
+    entrypoint: JString<'local>,
     package_cache: JString<'local>,
 ) -> jlong {
     guard(&mut env, 0, |env| {
@@ -121,9 +123,9 @@ pub extern "system" fn Java_com_example_epubstdemo_TypstNative_openBundle<'local
             env.delete_local_ref(data_ref)?;
             files.insert(path, data);
         }
-        let rootfile: String = env.get_string(&rootfile)?.into();
+        let entrypoint: String = env.get_string(&entrypoint)?.into();
         let package_cache = optional_string(env, &package_cache)?.map(PathBuf::from);
-        let bundle = Bundle::new(rootfile, files, package_cache)?;
+        let bundle = Bundle::new(entrypoint, files, package_cache)?;
         Ok(Box::into_raw(Box::new(bundle)) as jlong)
     })
 }
@@ -135,10 +137,25 @@ fn optional_string(env: &mut JNIEnv, string: &JString) -> Result<Option<String>,
     Ok(Some(env.get_string(string)?.into()))
 }
 
+/// `TypstNative.manifestEntrypoint(manifest)`: the entrypoint named by a `typst.toml` (see
+/// [`manifest`]). Throws TypzFormatException if the manifest doesn't name one.
+#[no_mangle]
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestEntrypoint<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    manifest: JByteArray<'local>,
+) -> jstring {
+    guard(&mut env, std::ptr::null_mut(), |env| {
+        let manifest = env.convert_byte_array(&manifest)?;
+        let entrypoint = manifest::entrypoint(&manifest).map_err(|e| Error::new(FORMAT_EXCEPTION, e))?;
+        Ok(env.new_string(entrypoint)?.into_raw())
+    })
+}
+
 /// `TypstNative.installPackage(cacheDir, spec, archive)`: unpacks a package's `.tar.gz`, as
 /// downloaded from Typst Universe, into the package cache. `spec` is e.g. `@preview/cetz:0.3.4`.
 #[no_mangle]
-pub extern "system" fn Java_com_example_epubstdemo_TypstNative_installPackage<'local>(
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_installPackage<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     cache_dir: JString<'local>,
@@ -155,7 +172,7 @@ pub extern "system" fn Java_com_example_epubstdemo_TypstNative_installPackage<'l
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_epubstdemo_TypstNative_closeBundle<'local>(
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_closeBundle<'local>(
     _env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: jlong,
@@ -167,19 +184,19 @@ pub extern "system" fn Java_com_example_epubstdemo_TypstNative_closeBundle<'loca
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_epubstdemo_TypstNative_bundleRootfile<'local>(
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_bundleEntrypoint<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: jlong,
 ) -> jstring {
     guard(&mut env, std::ptr::null_mut(), |env| {
-        let rootfile = bundle(handle)?.rootfile();
-        Ok(env.new_string(rootfile)?.into_raw())
+        let entrypoint = bundle(handle)?.entrypoint();
+        Ok(env.new_string(entrypoint)?.into_raw())
     })
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_epubstdemo_TypstNative_bundleFileCount<'local>(
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_bundleFileCount<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: jlong,
@@ -188,7 +205,7 @@ pub extern "system" fn Java_com_example_epubstdemo_TypstNative_bundleFileCount<'
 }
 
 #[no_mangle]
-pub extern "system" fn Java_com_example_epubstdemo_TypstNative_bundleFileSize<'local>(
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_bundleFileSize<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: jlong,
@@ -208,7 +225,7 @@ pub extern "system" fn Java_com_example_epubstdemo_TypstNative_bundleFileSize<'l
 /// first, only `missing`: a `String[]` of package specs like `@preview/cetz:0.3.4`. Throws
 /// TypstCompileException on errors.
 #[no_mangle]
-pub extern "system" fn Java_com_example_epubstdemo_TypstNative_compile<'local>(
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_compile<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     handle: jlong,

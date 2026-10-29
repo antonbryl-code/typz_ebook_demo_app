@@ -483,20 +483,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "epubst_typst"
-version = "0.1.0"
-dependencies = [
- "flate2",
- "jni",
- "tar",
- "typst",
- "typst-assets",
- "typst-kit",
- "typst-layout",
- "typst-svg",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2656,6 +2642,21 @@ dependencies = [
  "smallvec",
  "thin-vec",
  "unicode-math-class",
+]
+
+[[package]]
+name = "typzyreader"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "jni",
+ "tar",
+ "toml",
+ "typst",
+ "typst-assets",
+ "typst-kit",
+ "typst-layout",
+ "typst-svg",
 ]
 
 [[package]]

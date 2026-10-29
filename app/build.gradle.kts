@@ -16,17 +16,17 @@ val rustAbis = providers.gradleProperty("rustAbis")
 // in ~/.gradle/gradle.properties (or pass them with -P). Without them, release builds are signed
 // with the debug key (see buildTypes below), which Google Play rejects.
 val uploadKey = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
-    .associateWith { providers.gradleProperty("epubst.upload.$it").orNull }
+    .associateWith { providers.gradleProperty("typzyreader.upload.$it").orNull }
     .takeIf { key -> key.values.any { it != null } }
     ?.also { key ->
         val missing = key.filterValues { it.isNullOrEmpty() }.keys
         require(missing.isEmpty()) {
-            "Release signing: missing " + missing.joinToString { "epubst.upload.$it" }
+            "Release signing: missing " + missing.joinToString { "typzyreader.upload.$it" }
         }
     }
 
 android {
-    namespace = "com.example.epubstdemo"
+    namespace = "com.example.typzyreader"
     // Used by cargo-ndk (see cargoNdkBuild* tasks) and for stripping native libs.
     ndkVersion = "27.2.12479018"
     compileSdk {
@@ -34,7 +34,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.epubstdemo"
+        applicationId = "com.example.typzyreader"
         minSdk = 24
         targetSdk = 37
         versionCode = 1

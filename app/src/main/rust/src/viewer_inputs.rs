@@ -3,18 +3,18 @@
 //! The viewer never changes a document's page setup itself. Documents that support reflowing
 //! read these inputs (all strings in Typst length syntax, as `typst compile --input` would pass
 //! them) and lay themselves out pageless; documents that ignore them render as authored:
-//! - `epubst-width`: the width of the view, e.g. `"300pt"`
-//! - `epubst-margin`: the margin the viewer suggests on every side, e.g. `"12pt"`
+//! - `ebook-width`: the width of the view, e.g. `"300pt"`
+//! - `ebook-margin`: the margin the viewer suggests on every side, e.g. `"12pt"`
 //!
 //! For example:
 //! ```typ
 //! #let conf(doc, paper: "a4", margin: 2.5cm) = {
-//!   let width = sys.inputs.at("epubst-width", default: none)
+//!   let width = sys.inputs.at("ebook-width", default: none)
 //!   if width == none {
 //!     set page(paper: paper, margin: margin)
 //!     doc
 //!   } else {
-//!     set page(width: eval(width), height: auto, margin: eval(sys.inputs.at("epubst-margin")))
+//!     set page(width: eval(width), height: auto, margin: eval(sys.inputs.at("ebook-margin")))
 //!     doc
 //!   }
 //! }
@@ -35,8 +35,8 @@ pub struct ViewerGeometry {
 /// The standard library with `sys.inputs` describing `geometry`.
 pub fn library(geometry: ViewerGeometry) -> Library {
     let mut inputs = Dict::new();
-    inputs.insert("epubst-width".into(), length(geometry.width));
-    inputs.insert("epubst-margin".into(), length(geometry.margin));
+    inputs.insert("ebook-width".into(), length(geometry.width));
+    inputs.insert("ebook-margin".into(), length(geometry.margin));
     Library::builder().with_inputs(inputs).build()
 }
 

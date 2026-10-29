@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "EPUBst Demo"
+rootProject.name = "TypzyReader"
 include(":app")

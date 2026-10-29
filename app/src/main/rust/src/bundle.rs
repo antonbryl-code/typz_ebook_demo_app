@@ -1,4 +1,4 @@
-//! An .epubst bundle held in memory, serving as the Typst [`World`] it compiles in.
+//! A .typz bundle held in memory, serving as the Typst [`World`] it compiles in.
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -33,7 +33,7 @@ static FONTS: LazyLock<FontStore> = LazyLock::new(|| {
 });
 
 pub struct Bundle {
-    rootfile: String,
+    entrypoint: String,
     main: FileId,
     files: FileStore<BundleFiles>,
     time: Time,
@@ -89,11 +89,11 @@ impl FileLoader for BundleFiles {
 }
 
 impl Bundle {
-    /// `files` is keyed by the path inside the zip; `rootfile` must be one of those paths.
+    /// `files` is keyed by the path inside the zip; `entrypoint` must be one of those paths.
     /// `package_cache` is where downloaded packages are kept; without it, only packages
     /// bundled under `packages/` are available.
     pub fn new(
-        rootfile: String,
+        entrypoint: String,
         files: HashMap<String, Vec<u8>>,
         package_cache: Option<PathBuf>,
     ) -> Result<Self, String> {
@@ -104,14 +104,14 @@ impl Bundle {
                 normalized.insert(vpath.get_without_slash().to_owned(), Bytes::new(data));
             }
         }
-        let main_path = VirtualPath::new(&rootfile)
-            .map_err(|e| format!("Invalid rootfile path {rootfile}: {e:?}"))?;
+        let main_path = VirtualPath::new(&entrypoint)
+            .map_err(|e| format!("Invalid entrypoint path {entrypoint}: {e:?}"))?;
         if !normalized.contains_key(main_path.get_without_slash()) {
-            return Err(format!("Rootfile {rootfile} not found in bundle"));
+            return Err(format!("Entrypoint {entrypoint} not found in the .typz file"));
         }
         let packages = Packages::new(normalized.keys().map(String::as_str), package_cache);
         Ok(Self {
-            rootfile,
+            entrypoint,
             main: RootedPath::new(VirtualRoot::Project, main_path).intern(),
             files: FileStore::new(BundleFiles { files: normalized, packages }),
             time: Time::system(),
@@ -120,8 +120,8 @@ impl Bundle {
         })
     }
 
-    pub fn rootfile(&self) -> &str {
-        &self.rootfile
+    pub fn entrypoint(&self) -> &str {
+        &self.entrypoint
     }
 
     pub fn file_count(&self) -> usize {
@@ -133,7 +133,7 @@ impl Bundle {
         self.files.loader().files.get(vpath.get_without_slash()).map(Bytes::as_slice)
     }
 
-    /// Compiles the rootfile, offering `geometry` to it through `sys.inputs` (see
+    /// Compiles the entrypoint, offering `geometry` to it through `sys.inputs` (see
     /// [`viewer_inputs`]), and renders each page to SVG.
     pub fn compile(&mut self, geometry: ViewerGeometry) -> Result<Rendered, CompileFailure> {
         if self.geometry != Some(geometry) {

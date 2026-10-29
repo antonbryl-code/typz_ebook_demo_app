@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -13,7 +13,7 @@ import java.io.File
 class TextLayerTest {
     private fun compile(text: String): TypstDocument {
         val files = mapOf("main.typ" to text.toByteArray())
-        return TypstBundle.open(EpubstContents("main.typ", files)).use { it.compile(300f, 12f) }
+        return TypstBundle.open(TypzContents("main.typ", files)).use { it.compile(300f, 12f) }
     }
 
     /** Word or whitespace boxes: `<span style="width:calc(W*var(--u));letter-spacing:…">TEXT</span>`. */

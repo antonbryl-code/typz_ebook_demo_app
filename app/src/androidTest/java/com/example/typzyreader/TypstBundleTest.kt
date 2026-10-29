@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -10,10 +10,10 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class TypstBundleTest {
-    private val contents = EpubstContents(
-        rootfile = "src/main.typ",
+    private val contents = TypzContents(
+        entrypoint = "src/main.typ",
         files = mapOf(
-            "META-INF/container.xml" to ByteArray(10),
+            "typst.toml" to "[project]\nentrypoint = \"src/main.typ\"\n".toByteArray(),
             "src/main.typ" to "= Hello".toByteArray(),
             "img/logo.png" to ByteArray(1234),
         ),
@@ -22,7 +22,7 @@ class TypstBundleTest {
     @Test
     fun copiesFilesToNative() {
         TypstBundle.open(contents).use { bundle ->
-            assertEquals("src/main.typ", bundle.rootfile)
+            assertEquals("src/main.typ", bundle.entrypoint)
             assertEquals(3, bundle.fileCount)
             assertEquals(7L, bundle.fileSize("src/main.typ"))
             assertEquals(1234L, bundle.fileSize("img/logo.png"))
@@ -34,7 +34,7 @@ class TypstBundleTest {
     fun handlesManyFiles() {
         // More files than Android's 512 local JNI references per native frame.
         val files = (0 until 2000).associate { "f$it.typ" to ByteArray(it) }
-        TypstBundle.open(EpubstContents("f1.typ", files)).use { bundle ->
+        TypstBundle.open(TypzContents("f1.typ", files)).use { bundle ->
             assertEquals(2000, bundle.fileCount)
             assertEquals(1999L, bundle.fileSize("f1999.typ"))
         }
@@ -42,7 +42,7 @@ class TypstBundleTest {
 
     private fun open(vararg files: Pair<String, String>): TypstBundle {
         val map = files.associate { (path, text) -> path to text.toByteArray() }
-        return TypstBundle.open(EpubstContents(files.first().first, map))
+        return TypstBundle.open(TypzContents(files.first().first, map))
     }
 
     private fun compileDocument(vararg files: Pair<String, String>): TypstDocument =
@@ -69,12 +69,12 @@ class TypstBundleTest {
         "main.typ" to "#import \"template.typ\": conf\n#show: conf\n$body",
         "template.typ" to """
             #let conf(doc, paper: "a4", margin: 2.5cm) = {
-              let width = sys.inputs.at("epubst-width", default: none)
+              let width = sys.inputs.at("ebook-width", default: none)
               if width == none {
                 set page(paper: paper, margin: margin)
                 doc
               } else {
-                set page(width: eval(width), height: auto, margin: eval(sys.inputs.at("epubst-margin")))
+                set page(width: eval(width), height: auto, margin: eval(sys.inputs.at("ebook-margin")))
                 doc
               }
             }
@@ -84,8 +84,8 @@ class TypstBundleTest {
     @Test
     fun passesGeometryAsInputs() {
         val text = """
-            #assert.eq(sys.inputs.at("epubst-width"), "300.5pt")
-            #assert.eq(sys.inputs.at("epubst-margin"), "12pt")
+            #assert.eq(sys.inputs.at("ebook-width"), "300.5pt")
+            #assert.eq(sys.inputs.at("ebook-margin"), "12pt")
         """.trimIndent()
         open("main.typ" to text).use { it.compile(300.5f, MARGIN) }
     }
@@ -233,8 +233,8 @@ class TypstBundleTest {
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun rejectsMissingRootfile() {
-        TypstBundle.open(EpubstContents("nope.typ", contents.files))
+    fun rejectsMissingEntrypoint() {
+        TypstBundle.open(TypzContents("nope.typ", contents.files))
     }
 
     @Test(expected = IllegalStateException::class)

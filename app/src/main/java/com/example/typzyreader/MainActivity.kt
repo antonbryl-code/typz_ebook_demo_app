@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 import android.content.Context
 import android.content.Intent
@@ -65,7 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.example.epubstdemo.ui.theme.EPUBstDemoTheme
+import com.example.typzyreader.ui.theme.TypzyReaderTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
@@ -80,9 +80,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         val initialUri = intent.takeIf { it.action == Intent.ACTION_VIEW }?.data
         setContent {
-            EPUBstDemoTheme {
+            TypzyReaderTheme {
                 // Draws edge to edge, keeping its content clear of the system bars itself.
-                EpubstViewer(initialUri = initialUri, modifier = Modifier.fillMaxSize())
+                TypzViewer(initialUri = initialUri, modifier = Modifier.fillMaxSize())
             }
         }
     }
@@ -119,7 +119,7 @@ private sealed interface ViewerContent {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EpubstViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
+fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
     // Saved, so the document comes back if Android recreates the activity or restores the process.
@@ -306,7 +306,7 @@ private fun OpenFilePrompt(onOpen: () -> Unit) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Open an .epubst file to view it.", textAlign = TextAlign.Center)
+        Text("Open a .typz file to view it.", textAlign = TextAlign.Center)
         Spacer(Modifier.height(16.dp))
         Button(onClick = onOpen) {
             Icon(
@@ -320,7 +320,7 @@ private fun OpenFilePrompt(onOpen: () -> Unit) {
     }
 }
 
-/** The document's file name as the providing app reports it, e.g. "book.epubst". */
+/** The document's file name as the providing app reports it, e.g. "book.typz". */
 private fun displayName(context: Context, uri: Uri): String? {
     val reported = try {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
@@ -357,7 +357,7 @@ private fun openBundle(context: Context, uri: Uri): TypstBundle {
         ?: throw IOException("Cannot open $uri")
     // Packages are re-downloadable, so the cache directory (which Android may clear) suits them.
     val packageCache = File(context.cacheDir, "typst-packages")
-    return TypstBundle.open(stream.use { EpubstBundle.read(it) }, packageCache)
+    return TypstBundle.open(stream.use { TypzArchive.read(it) }, packageCache)
 }
 
 private fun compile(bundle: TypstBundle, widthPt: Float): ViewerContent = try {
@@ -371,8 +371,8 @@ private fun compile(bundle: TypstBundle, widthPt: Float): ViewerContent = try {
 
 @Preview(showBackground = true)
 @Composable
-fun EpubstViewerPreview() {
-    EPUBstDemoTheme {
-        EpubstViewer(initialUri = null)
+fun TypzViewerPreview() {
+    TypzyReaderTheme {
+        TypzViewer(initialUri = null)
     }
 }

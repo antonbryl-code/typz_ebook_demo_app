@@ -1,4 +1,4 @@
-package com.example.epubstdemo.ui.theme
+package com.example.typzyreader.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

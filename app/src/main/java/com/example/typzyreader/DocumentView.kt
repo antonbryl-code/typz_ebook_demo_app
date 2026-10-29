@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException

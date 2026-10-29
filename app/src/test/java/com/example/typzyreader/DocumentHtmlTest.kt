@@ -1,4 +1,4 @@
-﻿package com.example.epubstdemo
+﻿package com.example.typzyreader
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

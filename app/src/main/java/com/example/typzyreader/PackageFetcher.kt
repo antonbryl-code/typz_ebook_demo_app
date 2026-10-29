@@ -1,4 +1,4 @@
-package com.example.epubstdemo
+package com.example.typzyreader
 
 import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
@@ -28,7 +28,7 @@ object TypstUniverse : PackageFetcher {
         try {
             connection.connectTimeout = 15_000
             connection.readTimeout = 30_000
-            connection.setRequestProperty("User-Agent", "EPUBst-Demo")
+            connection.setRequestProperty("User-Agent", "TypzyReader")
             when (val code = connection.responseCode) {
                 HttpURLConnection.HTTP_OK -> return connection.inputStream.use { input ->
                     val out = ByteArrayOutputStream()
