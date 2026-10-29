@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-color version for Android 13+ themed icons: letters are cut out of the pages. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,41L27,41L27,72C36,70 46,70 54,74C62,70 72,70 81,72L81,41L84,41L84,76C72,73.5 62,73.5 54,77C46,73.5 36,73.5 24,76Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54,40C46,36 36,36 27,38L27,72C36,70 46,70 54,74ZM34.5,46H46.5V49H42V63H39V49H34.5Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54,40C62,36 72,36 81,38L81,72C72,70 62,70 54,74ZM60.5,46H64L67.5,51.5L71,46H74.5L69,54.5V63H66V54.5Z" />
+</vector>
