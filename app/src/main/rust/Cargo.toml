@@ -33,6 +33,13 @@ lto = "fat"
 codegen-units = 1
 # Keep the default panic = "unwind" so panics can be caught at the JNI boundary.
 
+# Used for release builds without the upload key (local demo builds): thin LTO needs far less
+# memory than fat LTO, which can run out on an 8 GB machine, for a somewhat larger library.
+[profile.release-thin]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
+
 # Used for the app's debug variant: optimized enough to run Typst at a usable speed, but
 # without LTO and with incremental compilation so edits to this crate rebuild quickly.
 [profile.android-dev]

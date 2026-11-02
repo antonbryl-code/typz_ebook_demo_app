@@ -115,8 +115,15 @@ androidComponents {
             cargo.set(cargoExecutable)
             abis.set(rustAbis)
             minSdk.set(variant.minSdk.apiLevel)
-            // See Cargo.toml: fast-rebuilding profile for debug builds, full LTO otherwise.
-            cargoProfile.set(if (variant.buildType == "debug") "android-dev" else "release")
+            // See Cargo.toml: fast-rebuilding profile for debug builds, full LTO for release builds
+            // signed with the upload key (for Google Play), thin LTO for local release builds.
+            cargoProfile.set(
+                when {
+                    variant.buildType == "debug" -> "android-dev"
+                    uploadKey != null -> "release"
+                    else -> "release-thin"
+                }
+            )
         }
         variant.sources.jniLibs?.addGeneratedSourceDirectory(cargoBuild, CargoNdkBuild::outputDir)
     }
