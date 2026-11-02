@@ -107,6 +107,13 @@ class TypstBundleTest {
     }
 
     @Test
+    fun keepsPagesThatReflowedDocumentsMakeWider() {
+        // E.g. a big table on a page of its own, wider than the view.
+        val pages = compile(*reflowable("Hello\n#page(width: 600pt, height: auto)[Wide table]\nWorld"))
+        assertEquals(listOf(WIDTH, 600f, WIDTH), pages.map { it.widthPt })
+    }
+
+    @Test
     fun rendersOtherDocumentsAsAuthored() {
         val a5 = compile("main.typ" to "#set page(paper: \"a5\", flipped: true)\nHello").single()
         assertEquals(595.28f, a5.widthPt, 0.01f)

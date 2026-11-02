@@ -232,6 +232,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                     )
                     is ViewerContent.Document -> DocumentView(
                         document = shown.document,
+                        viewWidthPt = shown.widthPt,
                         topPadding = TopAppBarDefaults.TopAppBarExpandedHeight,
                         onScroll = { dy ->
                             barState.heightOffset -= dy // kept within the bar's height
