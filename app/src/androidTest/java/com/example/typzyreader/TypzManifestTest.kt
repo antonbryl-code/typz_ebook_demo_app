@@ -51,6 +51,49 @@ class TypzManifestTest {
         }
     }
 
+    private fun format(manifest: String) = TypstNative.manifestFormat(manifest.toByteArray())
+
+    @Test
+    fun readsFormatFromToolSection() {
+        assertEquals("book", format("[tool.typzy-reader]\nformat = \"book\""))
+        assertEquals("pageless", format("[tool.typzy-reader]\nformat = \"pageless\""))
+        assertEquals("other", format("[tool.typzy-reader]\nformat = \"other\""))
+    }
+
+    @Test
+    fun defaultsFormatToPageless() {
+        assertEquals("pageless", format("[project]\nentrypoint = \"a.typ\""))
+        assertEquals("pageless", format("[tool.typzy-reader]\nother = 1"))
+        assertEquals("pageless", format("[tool.other]\nformat = \"book\""))
+        assertEquals("pageless", format("[project]\nformat = \"book\""))
+    }
+
+    @Test
+    fun showsOtherFormatValuesAsToml() {
+        assertEquals("3", format("[tool.typzy-reader]\nformat = 3"))
+    }
+
+    @Test
+    fun rejectsMalformedManifestWhenReadingFormat() {
+        assertThrows(TypzFormatException::class.java) { format("[tool\n") }
+    }
+
+    @Test
+    fun findsFormatProblemAfterOtherEntries() {
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { zip ->
+            for ((name, content) in listOf("a.typ" to "= A", "typst.toml" to "[tool.typzy-reader]\nformat = \"book\"")) {
+                zip.putNextEntry(ZipEntry(name))
+                zip.write(content.toByteArray())
+                zip.closeEntry()
+            }
+        }
+        assertEquals(
+            "The \"book\" format is not implemented yet.",
+            TypzArchive.formatProblem(ByteArrayInputStream(out.toByteArray())),
+        )
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun rejectsEntrypointMissingFromArchive() {
         TypstBundle.open(read("[project]\nentrypoint = \"nope.typ\"", "main.typ" to "")).close()

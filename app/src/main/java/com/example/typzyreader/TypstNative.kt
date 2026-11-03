@@ -25,6 +25,11 @@ internal object TypstNative {
      * if the manifest is malformed or names none.
      */
     external fun manifestEntrypoint(manifest: ByteArray): String
+    /**
+     * The `format` in the `[tool.typzy-reader]` section of a typst.toml, or the default format if
+     * it names none. Throws [TypzFormatException] if the manifest is malformed.
+     */
+    external fun manifestFormat(manifest: ByteArray): String
     external fun bundleEntrypoint(handle: Long): String
     external fun bundleFileCount(handle: Long): Int
     /** Size in bytes of the file at [path], or -1 if the bundle has no such file. */

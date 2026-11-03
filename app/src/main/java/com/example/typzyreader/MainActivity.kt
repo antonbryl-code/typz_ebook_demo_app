@@ -127,7 +127,10 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
     // Saved, so the document comes back if Android recreates the activity or restores the process.
-    var uri by rememberSaveable { mutableStateOf(initialUri) }
+    var uri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    // A file asked to be opened, until its format is checked; a refused one leaves [uri] alone.
+    var requestedUri by rememberSaveable { mutableStateOf(initialUri) }
+    var refusal by remember { mutableStateOf<String?>(null) }
     var fileName by remember { mutableStateOf<String?>(null) }
     var bundle by remember { mutableStateOf<TypstBundle?>(null) }
     var viewWidthPx by remember { mutableStateOf<Int?>(null) }
@@ -152,10 +155,17 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     ) { picked ->
         if (picked != null) {
             keepReadAccess(context, picked)
-            uri = picked
+            requestedUri = picked
         }
     }
     val pickFile = { openDocument.launch(arrayOf("*/*")) }
+
+    LaunchedEffect(requestedUri) {
+        val requested = requestedUri ?: return@LaunchedEffect
+        val problem = withContext(Dispatchers.IO) { formatProblem(context, requested) }
+        if (problem == null) uri = requested else refusal = problem
+        requestedUri = null
+    }
 
     LaunchedEffect(uri) {
         val current = uri ?: return@LaunchedEffect
@@ -215,7 +225,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     }
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        if (uri == null) {
+        if (uri == null && requestedUri == null) {
             OpenFilePrompt(onOpen = pickFile)
             return@Surface
         }
@@ -326,6 +336,14 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
             },
         )
     }
+    refusal?.let { problem ->
+        AlertDialog(
+            onDismissRequest = { refusal = null },
+            confirmButton = { TextButton(onClick = { refusal = null }) { Text("Close") } },
+            title = { Text("Can't open this file") },
+            text = { Text(text = problem, modifier = Modifier.verticalScroll(rememberScrollState())) },
+        )
+    }
     if (showSettings) {
         SettingsDialog(
             textSizePercent = textSizePercent,
@@ -424,6 +442,13 @@ private fun describe(shown: ViewerContent.Document): String {
     return "${pages.size} ${if (pages.size == 1) "page" else "pages"} laid out for a " +
         "${"%.2f".format(shown.layout.widthPt)}pt wide view: " +
         pages.joinToString { "%.0f × %.0f pt".format(it.widthPt, it.heightPt) }
+}
+
+/** Why the file at [uri] must not be opened, because of its format; null lets opening it proceed. */
+private fun formatProblem(context: Context, uri: Uri): String? = try {
+    context.contentResolver.openInputStream(uri)?.use { TypzArchive.formatProblem(it) }
+} catch (_: Exception) {
+    null // e.g. not a zip or a malformed manifest: opening it reports that, in place of the document
 }
 
 private fun openBundle(context: Context, uri: Uri): TypstBundle {

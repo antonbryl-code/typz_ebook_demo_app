@@ -152,6 +152,21 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestEntrypoi
     })
 }
 
+/// `TypstNative.manifestFormat(manifest)`: the format named by a `typst.toml`, or the default
+/// one (see [`manifest`]). Throws TypzFormatException if the manifest is malformed.
+#[no_mangle]
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestFormat<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    manifest: JByteArray<'local>,
+) -> jstring {
+    guard(&mut env, std::ptr::null_mut(), |env| {
+        let manifest = env.convert_byte_array(&manifest)?;
+        let format = manifest::format(&manifest).map_err(|e| Error::new(FORMAT_EXCEPTION, e))?;
+        Ok(env.new_string(format)?.into_raw())
+    })
+}
+
 /// `TypstNative.installPackage(cacheDir, spec, archive)`: unpacks a package's `.tar.gz`, as
 /// downloaded from Typst Universe, into the package cache. `spec` is e.g. `@preview/cetz:0.3.4`.
 #[no_mangle]

@@ -2,6 +2,7 @@ package com.example.typzyreader
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -34,6 +35,20 @@ class TypzArchiveTest {
         )
         assertEquals(setOf("typst.toml", "main.typ", "images/cover.png"), files.keys)
         assertArrayEquals("= Hello".toByteArray(), files["main.typ"])
+    }
+
+    @Test
+    fun acceptsOnlyThePagelessFormat() {
+        assertNull(TypzArchive.formatProblem("pageless"))
+        assertEquals("The \"book\" format is not implemented yet.", TypzArchive.formatProblem("book"))
+        assertEquals("\"Book\" is an unknown value for the \"format\" parameter.", TypzArchive.formatProblem("Book"))
+        assertEquals("\"\" is an unknown value for the \"format\" parameter.", TypzArchive.formatProblem(""))
+    }
+
+    @Test
+    fun hasNoFormatProblemWithoutManifest() {
+        // Opening the file reports the missing manifest.
+        assertNull(TypzArchive.formatProblem(zip("main.typ" to "= Hello")))
     }
 
     @Test(expected = TypzFormatException::class)

@@ -57,9 +57,10 @@ class TypzViewerTest {
             #set page(width: eval(width), height: auto) if width != none
             Hello
         """.trimIndent(),
+        manifestExtra: String = "",
     ): File {
         val files = mapOf(
-            "typst.toml" to "[project]\nentrypoint = \"main.typ\"\n",
+            "typst.toml" to "[project]\nentrypoint = \"main.typ\"\n$manifestExtra",
             "main.typ" to mainTyp,
         )
         val file = File(context.cacheDir, "viewer-test.typz")
@@ -81,6 +82,44 @@ class TypzViewerTest {
         compose.waitUntil(timeoutMillis = 15_000) {
             compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    /** Opens a .typz in [format] and expects a dialog with [message] and no document behind it. */
+    private fun assertRefused(format: String, message: String) {
+        val uri = Uri.fromFile(writeTypz(manifestExtra = "[tool.typzy-reader]\nformat = \"$format\"\n"))
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        compose.waitUntil(timeoutMillis = 15_000) {
+            compose.onAllNodesWithText(message).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Can't open this file").assertExists()
+        compose.onNodeWithText("Open a .typz file to view it.").assertExists()
+        compose.onNodeWithContentDescription("Typst document").assertDoesNotExist()
+
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithText(message).assertDoesNotExist()
+        compose.onNodeWithText("Open a .typz file to view it.").assertExists()
+    }
+
+    @Test
+    fun refusesBookFormat() {
+        assertRefused("book", "The \"book\" format is not implemented yet.")
+    }
+
+    @Test
+    fun refusesUnknownFormat() {
+        assertRefused("scroll", "\"scroll\" is an unknown value for the \"format\" parameter.")
+    }
+
+    @Test
+    fun opensExplicitPagelessFormat() {
+        val uri = Uri.fromFile(writeTypz(manifestExtra = "[tool.typzy-reader]\nformat = \"pageless\"\n"))
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument(laidOut(400))
+        compose.onNodeWithText("Can't open this file").assertDoesNotExist()
     }
 
     @Test

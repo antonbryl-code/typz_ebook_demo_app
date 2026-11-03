@@ -13,7 +13,7 @@ class TypzContents(val entrypoint: String, val files: Map<String, ByteArray>)
 /**
  * Reader for .typz files: zip archives with the Typst sources at their root (and in
  * subfolders), and a typst.toml manifest there whose `[project]` section names the
- * `entrypoint` to compile.
+ * `entrypoint` to compile, and whose optional `[tool.typzy-reader]` section the `format`.
  */
 object TypzArchive {
     const val MANIFEST_PATH = "typst.toml"
@@ -32,31 +32,61 @@ object TypzArchive {
         return TypzContents(TypstNative.manifestEntrypoint(manifest), files)
     }
 
+    /**
+     * Why the .typz can't be opened because of its format, null if that isn't the problem. A
+     * .typz without a manifest passes here; [read] reports that.
+     */
+    fun formatProblem(input: InputStream, maxTotalSize: Long = MAX_TOTAL_SIZE): String? {
+        val manifest = readManifest(input, maxTotalSize) ?: return null
+        return formatProblem(TypstNative.manifestFormat(manifest))
+    }
+
+    /** Why a document in [format] can't be opened, null if it can. */
+    internal fun formatProblem(format: String): String? = when (format) {
+        "pageless" -> null
+        "book" -> "The \"book\" format is not implemented yet."
+        else -> "\"$format\" is an unknown value for the \"format\" parameter."
+    }
+
+    /** The manifest's bytes, read without keeping the other entries; null if there is none. */
+    private fun readManifest(input: InputStream, maxTotalSize: Long): ByteArray? {
+        ZipInputStream(input).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: return null
+                if (entry.name == MANIFEST_PATH) return readEntry(zip, maxTotalSize, maxTotalSize)
+            }
+        }
+    }
+
     /** All files of the zip by path; directory entries are skipped. */
     internal fun readEntries(input: InputStream, maxTotalSize: Long = MAX_TOTAL_SIZE): Map<String, ByteArray> {
         val files = LinkedHashMap<String, ByteArray>()
         var remaining = maxTotalSize
-        val buffer = ByteArray(64 * 1024)
         ZipInputStream(input).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 if (entry.isDirectory) continue
-                // Copy in chunks rather than readBytes() so an oversized entry fails before exhausting memory.
-                val out = ByteArrayOutputStream()
-                while (true) {
-                    val n = zip.read(buffer)
-                    if (n < 0) break
-                    remaining -= n
-                    if (remaining < 0) {
-                        throw TypzFormatException(".typz file exceeds ${maxTotalSize / (1024 * 1024)} MB uncompressed")
-                    }
-                    out.write(buffer, 0, n)
-                }
-                if (files.put(entry.name, out.toByteArray()) != null) {
+                val data = readEntry(zip, remaining, maxTotalSize)
+                remaining -= data.size
+                if (files.put(entry.name, data) != null) {
                     throw TypzFormatException("Duplicate entry ${entry.name} in .typz file")
                 }
             }
         }
         return files
+    }
+
+    /** Copies in chunks rather than readBytes() so an oversized entry fails before exhausting memory. */
+    private fun readEntry(zip: ZipInputStream, remaining: Long, maxTotalSize: Long): ByteArray {
+        val buffer = ByteArray(64 * 1024)
+        val out = ByteArrayOutputStream()
+        while (true) {
+            val n = zip.read(buffer)
+            if (n < 0) return out.toByteArray()
+            if (out.size() + n > remaining) {
+                throw TypzFormatException(".typz file exceeds ${maxTotalSize / (1024 * 1024)} MB uncompressed")
+            }
+            out.write(buffer, 0, n)
+        }
     }
 }
