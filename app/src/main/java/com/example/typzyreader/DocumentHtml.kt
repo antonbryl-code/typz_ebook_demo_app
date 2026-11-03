@@ -6,8 +6,8 @@ import kotlin.math.abs
 /**
  * Builds the page shown in the document WebView: the page SVGs inlined and stacked vertically.
  *
- * The viewport is `device-width`, so 1 CSS px = 1 dp = 0.75pt and a page reflowed to the view's
- * width fills it exactly. Pages wider than the view are scaled down to fit in documents rendered
+ * The viewport is `device-width`, so 1 CSS px = 1 dp, showing however many points the text size
+ * calls for (see [ViewGeometry]), and a page reflowed to the view's width fills it. Pages wider than the view are scaled down to fit in documents rendered
  * as authored; in documents that reflowed, they are pages the document deliberately made wider
  * (e.g. for a big table), so they keep their size and scroll sideways, with a serrated edge on
  * each side there's more of the page to scroll to. Narrower pages keep their size and are
@@ -26,13 +26,15 @@ object DocumentHtml {
      * paints them). It's passed in rather than left to `prefers-color-scheme`, which the WebView
      * derives from the app's XML theme instead of the system's dark mode. [topPaddingPx] keeps
      * the top of the document clear of a toolbar laid over the view. [viewWidthPt] is the width
-     * the document was compiled for; null treats it as not reflowed.
+     * the document was compiled for; null treats it as not reflowed. [ptPerCssPx] sets the size
+     * pages appear at; the default is CSS's own 96 px per 72pt.
      */
     fun build(
         document: TypstDocument,
         dark: Boolean,
         topPaddingPx: Int = 0,
         viewWidthPt: Float? = null,
+        ptPerCssPx: Float = 0.75f,
     ): String = buildString {
         // A document that reflowed has a page exactly as wide as the view.
         val reflowed = document.pages.any { matches(it, viewWidthPt) }
@@ -98,7 +100,7 @@ object DocumentHtml {
         )
         for (page in document.pages) {
             // Typst sizes pages in pt; the aspect ratio keeps scaled-down pages proportional.
-            val widthPx = css(page.widthPt / 0.75f)
+            val widthPx = css(page.widthPt / ptPerCssPx)
             append("<div class=\"row\"><div class=\"scroller\"><div class=\"page\" style=\"width: ")
             append(
                 when {

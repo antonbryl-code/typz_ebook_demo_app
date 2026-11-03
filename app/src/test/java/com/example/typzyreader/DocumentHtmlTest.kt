@@ -24,6 +24,14 @@ class DocumentHtmlTest {
     }
 
     @Test
+    fun sizesPagesForTheTextSize() {
+        // At 0.5pt per CSS px, a 600pt page next to a reflowed 300pt one is 1200 CSS px wide.
+        val document = TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), "")
+        val html = DocumentHtml.build(document, dark = false, viewWidthPt = 300f, ptPerCssPx = 0.5f)
+        assertTrue(html, html.contains("width: 1200.000px; aspect-ratio: 600.000 / 60.000"))
+    }
+
+    @Test
     fun putsEachPageInARowThatScrollsSideways() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), ""), dark = false)
         assertEquals(2, Regex("<div class=\"row\"><div class=\"scroller\"><div class=\"page\"").findAll(html).count())

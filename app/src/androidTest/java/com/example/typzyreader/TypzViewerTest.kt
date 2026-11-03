@@ -1,5 +1,6 @@
 package com.example.typzyreader
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
@@ -7,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -16,9 +18,12 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,6 +36,21 @@ class TypzViewerTest {
     @get:Rule
     val compose = createComposeRule()
 
+    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Before
+    fun resetSettings() {
+        context.getSharedPreferences(ReaderSettings.FILE_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
+    /** How a one-page document describes itself laid out in a view [dp] wide at a text size. */
+    private fun laidOut(dp: Int, textSizePercent: Int = ReaderSettings.DEFAULT_TEXT_SIZE): String {
+        val metrics = context.resources.displayMetrics
+        val dpi = ViewGeometry.physicalDpi(metrics.xdpi, metrics.densityDpi)
+        val widthPt = dp * ViewGeometry.ptPerCssPx(metrics.density, dpi, textSizePercent / 100f)
+        return "1 page laid out for a ${"%.2f".format(widthPt)}pt wide view: "
+    }
+
     private fun writeTypz(
         mainTyp: String = """
             #let width = sys.inputs.at("ebook-width", default: none)
@@ -42,7 +62,6 @@ class TypzViewerTest {
             "typst.toml" to "[project]\nentrypoint = \"main.typ\"\n",
             "main.typ" to mainTyp,
         )
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
         val file = File(context.cacheDir, "viewer-test.typz")
         ZipOutputStream(file.outputStream()).use { zip ->
             for ((name, text) in files) {
@@ -71,11 +90,39 @@ class TypzViewerTest {
         compose.setContent {
             Box(Modifier.width(width)) { TypzViewer(initialUri = uri) }
         }
-        // 400dp = 400 CSS px = 300pt, and the document lays out at exactly that width.
-        waitForDocument("1 page laid out for a 300.00pt wide view: 300 × ")
+        waitForDocument(laidOut(400))
 
         width = 320.dp
-        waitForDocument("1 page laid out for a 240.00pt wide view: 240 × ")
+        waitForDocument(laidOut(320))
+    }
+
+    @Test
+    fun appliesAndRemembersTextSize() {
+        val uri = Uri.fromFile(writeTypz())
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument(laidOut(400))
+
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("Text size: 80%").assertExists()
+        compose.onNodeWithContentDescription("Text size").performSemanticsAction(SemanticsActions.SetProgress) {
+            it(100f)
+        }
+        compose.onNodeWithText("Text size: 100%").assertExists()
+        waitForDocument(laidOut(400, textSizePercent = 100))
+        assertEquals(100, ReaderSettings(context).textSizePercent)
+    }
+
+    @Test
+    fun startsAtTheRememberedTextSize() {
+        ReaderSettings(context).textSizePercent = 120
+        val uri = Uri.fromFile(writeTypz())
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument(laidOut(400, textSizePercent = 120))
     }
 
     @Test
@@ -95,20 +142,39 @@ class TypzViewerTest {
     fun promptsToOpenFileWhenNoneIsOpen() {
         compose.setContent { TypzViewer(initialUri = null) }
         compose.onNodeWithText("Open file").assertExists()
-        compose.onNodeWithContentDescription("Open file").assertDoesNotExist() // no toolbar
+        compose.onNodeWithContentDescription("Menu").assertDoesNotExist() // no toolbar
     }
 
     @Test
-    fun showsFileNameAndOpenButtonInToolbar() {
+    fun showsFileNameAndMenuInToolbar() {
         val uri = Uri.fromFile(writeTypz())
         compose.setContent {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         waitForDocument("1 page laid out")
         compose.onNodeWithText("viewer-test.typz").assertExists()
-        compose.onNodeWithContentDescription("Open file").assertExists()
+        compose.onNodeWithContentDescription("Menu").assertExists()
         compose.onNodeWithText("Open file").assertDoesNotExist() // the prompt is gone
         compose.onNodeWithContentDescription("Show warnings").assertDoesNotExist()
+    }
+
+    @Test
+    fun menuOffersOpenFileAndOpensSettings() {
+        val uri = Uri.fromFile(writeTypz())
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("1 page laid out")
+        compose.onNodeWithText("Open File").assertDoesNotExist()
+
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.onNodeWithText("Open File").assertExists()
+        compose.onNodeWithText("Settings").performClick()
+
+        compose.onNodeWithText("Open File").assertDoesNotExist() // the menu closed
+        compose.onNodeWithText("Settings").assertExists() // now the dialog's title
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithText("Settings").assertDoesNotExist()
     }
 
     @Test
@@ -141,11 +207,11 @@ class TypzViewerTest {
         restoration.setContent {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
-        waitForDocument("1 page laid out for a 300.00pt wide view")
+        waitForDocument(laidOut(400))
 
         // Like an activity recreation: remembered state (and the open bundle) is gone, saved
         // state comes back, and the viewer must reopen and recompile the document.
         restoration.emulateSavedInstanceStateRestore()
-        waitForDocument("1 page laid out for a 300.00pt wide view")
+        waitForDocument(laidOut(400))
     }
 }

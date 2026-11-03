@@ -33,11 +33,14 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -73,6 +76,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,14 +112,14 @@ private sealed interface ViewerContent {
     /** Reading the bundle and compiling it for the first time. */
     data object Loading : ViewerContent
 
-    /** [document] as compiled for a view [widthPt] wide. */
-    data class Document(val document: TypstDocument, val widthPt: Float) : ViewerContent
+    /** [document] as compiled for [layout]. */
+    data class Document(val document: TypstDocument, val layout: ViewLayout) : ViewerContent
 }
 
 /**
  * With no file open, a prompt to open one. Otherwise the document (or why it can't be shown),
- * under a toolbar with its title (or file name) and an open button; the toolbar slides away
- * while scrolling down the document and comes back when scrolling up.
+ * under a toolbar with its title (or file name) and a menu; the toolbar slides away while
+ * scrolling down the document and comes back when scrolling up.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,10 +130,19 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     var uri by rememberSaveable { mutableStateOf(initialUri) }
     var fileName by remember { mutableStateOf<String?>(null) }
     var bundle by remember { mutableStateOf<TypstBundle?>(null) }
-    var widthPt by remember { mutableStateOf<Float?>(null) }
+    var viewWidthPx by remember { mutableStateOf<Int?>(null) }
+    val settings = remember { ReaderSettings(context) }
+    var textSizePercent by remember { mutableIntStateOf(settings.textSizePercent) }
+    val layout = viewWidthPx?.let { widthPx ->
+        val metrics = context.resources.displayMetrics
+        val dpi = ViewGeometry.physicalDpi(metrics.xdpi, metrics.densityDpi)
+        ViewGeometry.layout(widthPx, density, dpi, textSizePercent / 100f)
+    }
     var content by remember { mutableStateOf<ViewerContent>(ViewerContent.Loading) }
     var recompiling by remember { mutableStateOf(false) }
     var showWarnings by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     val barState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(barState)
     var documentScrolls by remember { mutableIntStateOf(0) }
@@ -170,14 +183,14 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
         }
     }
 
-    LaunchedEffect(bundle, widthPt) {
+    LaunchedEffect(bundle, layout) {
         val current = bundle ?: return@LaunchedEffect
-        val width = widthPt ?: return@LaunchedEffect
+        val target = layout ?: return@LaunchedEffect
         delay(RESIZE_DEBOUNCE_MS)
         // The previous rendering stays up meanwhile, so a resize doesn't flash an empty view.
         recompiling = true
         try {
-            content = withContext(Dispatchers.IO) { compile(current, width) }
+            content = withContext(Dispatchers.IO) { compile(current, target) }
         } finally {
             recompiling = false
         }
@@ -213,7 +226,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .onSizeChanged { widthPt = ViewGeometry.widthPt(it.width, density) }
+                    .onSizeChanged { viewWidthPx = it.width }
             ) {
                 when (val shown = content) {
                     is ViewerContent.Message -> Text(
@@ -232,7 +245,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                     )
                     is ViewerContent.Document -> DocumentView(
                         document = shown.document,
-                        viewWidthPt = shown.widthPt,
+                        layout = shown.layout,
                         topPadding = TopAppBarDefaults.TopAppBarExpandedHeight,
                         onScroll = { dy ->
                             barState.heightOffset -= dy // kept within the bar's height
@@ -261,8 +274,27 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                                 Icon(painterResource(R.drawable.ic_warning), contentDescription = "Show warnings")
                             }
                         }
-                        IconButton(onClick = pickFile) {
-                            Icon(painterResource(R.drawable.ic_folder_open), contentDescription = "Open file")
+                        // In a Box, so the menu drops down from the button.
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Menu")
+                            }
+                            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Open File") },
+                                    onClick = {
+                                        showMenu = false
+                                        pickFile()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Settings") },
+                                    onClick = {
+                                        showMenu = false
+                                        showSettings = true
+                                    },
+                                )
+                            }
                         }
                     },
                     windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
@@ -294,6 +326,47 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
             },
         )
     }
+    if (showSettings) {
+        SettingsDialog(
+            textSizePercent = textSizePercent,
+            onTextSizeChange = {
+                textSizePercent = it
+                settings.textSizePercent = it
+            },
+            onDismiss = { showSettings = false },
+        )
+    }
+}
+
+/** The app's settings. An open document follows them right away. */
+@Composable
+private fun SettingsDialog(
+    textSizePercent: Int,
+    onTextSizeChange: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        title = { Text("Settings") },
+        text = {
+            Column {
+                Text("Text size: $textSizePercent%")
+                Slider(
+                    value = textSizePercent.toFloat(),
+                    onValueChange = { onTextSizeChange(ReaderSettings.nearestTextSize(it.roundToInt())) },
+                    valueRange = ReaderSettings.MIN_TEXT_SIZE.toFloat()..ReaderSettings.MAX_TEXT_SIZE.toFloat(),
+                    // The positions between the two ends.
+                    steps = (ReaderSettings.MAX_TEXT_SIZE - ReaderSettings.MIN_TEXT_SIZE) / ReaderSettings.TEXT_SIZE_STEP - 1,
+                    modifier = Modifier.semantics { contentDescription = "Text size" },
+                )
+                Text(
+                    text = "Scales the whole document, images included. 100% matches its printed size.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+    )
 }
 
 /** Shown while no file is open. */
@@ -349,7 +422,7 @@ private fun keepReadAccess(context: Context, uri: Uri) {
 private fun describe(shown: ViewerContent.Document): String {
     val pages = shown.document.pages
     return "${pages.size} ${if (pages.size == 1) "page" else "pages"} laid out for a " +
-        "${"%.2f".format(shown.widthPt)}pt wide view: " +
+        "${"%.2f".format(shown.layout.widthPt)}pt wide view: " +
         pages.joinToString { "%.0f × %.0f pt".format(it.widthPt, it.heightPt) }
 }
 
@@ -361,8 +434,8 @@ private fun openBundle(context: Context, uri: Uri): TypstBundle {
     return TypstBundle.open(stream.use { TypzArchive.read(it) }, packageCache)
 }
 
-private fun compile(bundle: TypstBundle, widthPt: Float): ViewerContent = try {
-    ViewerContent.Document(bundle.compile(widthPt, ViewGeometry.MARGIN_PT, TypstUniverse), widthPt)
+private fun compile(bundle: TypstBundle, layout: ViewLayout): ViewerContent = try {
+    ViewerContent.Document(bundle.compile(layout.widthPt, ViewGeometry.MARGIN_PT, TypstUniverse), layout)
 } catch (e: TypstCompileException) {
     ViewerContent.Message("Typst errors:\n${e.message}")
 } catch (e: Exception) {

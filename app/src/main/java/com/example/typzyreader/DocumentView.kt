@@ -19,22 +19,22 @@ import kotlin.math.roundToInt
 
 /**
  * Shows a compiled document in a WebView; see [DocumentHtml] for the page layout.
- * [viewWidthPt] is the width the document was compiled for, [topPadding] leaves room above the
- * document for a toolbar laid over the view, and [onScroll] gets each vertical scroll step in
- * pixels (positive when scrolling down).
+ * [layout] is what the document was compiled for, [topPadding] leaves room above the document
+ * for a toolbar laid over the view, and [onScroll] gets each vertical scroll step in pixels
+ * (positive when scrolling down).
  */
 @Composable
 fun DocumentView(
     document: TypstDocument,
-    viewWidthPt: Float,
+    layout: ViewLayout,
     modifier: Modifier = Modifier,
     topPadding: Dp = 0.dp,
     onScroll: (Int) -> Unit = {},
 ) {
     val dark = isSystemInDarkTheme()
     // With the device-width viewport, 1 CSS px = 1 dp.
-    val html = remember(document, viewWidthPt, dark, topPadding) {
-        DocumentHtml.build(document, dark, topPadding.value.roundToInt(), viewWidthPt)
+    val html = remember(document, layout, dark, topPadding) {
+        DocumentHtml.build(document, dark, topPadding.value.roundToInt(), layout.widthPt, layout.ptPerCssPx)
     }
     AndroidView(
         factory = ::DocumentWebView,
