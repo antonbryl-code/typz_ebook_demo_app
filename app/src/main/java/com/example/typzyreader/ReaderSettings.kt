@@ -19,7 +19,7 @@ class ReaderSettings(context: Context) {
         const val MIN_TEXT_SIZE = 60
         const val MAX_TEXT_SIZE = 120
         const val TEXT_SIZE_STEP = 10
-        const val DEFAULT_TEXT_SIZE = 80
+        const val DEFAULT_TEXT_SIZE = 70
 
         /** The selectable text size closest to [percent]. */
         fun nearestTextSize(percent: Int): Int {

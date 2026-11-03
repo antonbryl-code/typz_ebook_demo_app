@@ -20,7 +20,7 @@ class ReaderSettingsTest {
     }
 
     @Test
-    fun defaultsTo80Percent() {
-        assertEquals(80, ReaderSettings.DEFAULT_TEXT_SIZE)
+    fun defaultsTo70Percent() {
+        assertEquals(70, ReaderSettings.DEFAULT_TEXT_SIZE)
     }
 }

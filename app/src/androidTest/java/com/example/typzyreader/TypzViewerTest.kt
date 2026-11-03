@@ -106,7 +106,7 @@ class TypzViewerTest {
 
         compose.onNodeWithContentDescription("Menu").performClick()
         compose.onNodeWithText("Settings").performClick()
-        compose.onNodeWithText("Text size: 80%").assertExists()
+        compose.onNodeWithText("Text size: 70%").assertExists()
         compose.onNodeWithContentDescription("Text size").performSemanticsAction(SemanticsActions.SetProgress) {
             it(100f)
         }
