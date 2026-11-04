@@ -167,6 +167,23 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestFormat<'
     })
 }
 
+/// `TypstNative.manifestCoverImg(manifest)`: the normalized path of the cover image named by a
+/// `typst.toml`, or null (see [`manifest`]). Throws TypzFormatException if the manifest is malformed.
+#[no_mangle]
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestCoverImg<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    manifest: JByteArray<'local>,
+) -> jstring {
+    guard(&mut env, std::ptr::null_mut(), |env| {
+        let manifest = env.convert_byte_array(&manifest)?;
+        match manifest::cover_img(&manifest).map_err(|e| Error::new(FORMAT_EXCEPTION, e))? {
+            Some(path) => Ok(env.new_string(path)?.into_raw()),
+            None => Ok(std::ptr::null_mut()),
+        }
+    })
+}
+
 /// `TypstNative.installPackage(cacheDir, spec, archive)`: unpacks a package's `.tar.gz`, as
 /// downloaded from Typst Universe, into the package cache. `spec` is e.g. `@preview/cetz:0.3.4`.
 #[no_mangle]
@@ -234,9 +251,10 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_bundleFileSize<'
 
 /// Compiles the bundle, offering the view's width and a margin (in points) through `sys.inputs`,
 /// and renders it to one SVG per page. Returns `[sizes, svgs, textLayers, warnings, missing,
-/// title]`: a `float[]` of `width0, height0, width1, height1, ..` in points, a `String[]` of page
+/// title, sections]`: a `float[]` of `width0, height0, width1, height1, ..` in points, a `String[]` of page
 /// SVGs, a `String[]` of the pages' HTML text layers, and the formatted warnings (empty if none);
-/// `missing` is null, and `title` the document's title or null. Or, if packages need downloading
+/// `missing` is null, `title` the document's title or null, and `sections` a `String[]` of its
+/// top-level sections. Or, if packages need downloading
 /// first, only `missing`: a `String[]` of package specs like `@preview/cetz:0.3.4`. Throws
 /// TypstCompileException on errors.
 #[no_mangle]
@@ -262,7 +280,7 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_compile<'local>(
                     env.set_object_array_element(&missing, i as jsize, &spec)?;
                     env.delete_local_ref(spec)?;
                 }
-                let result = env.new_object_array(6, "java/lang/Object", JObject::null())?;
+                let result = env.new_object_array(7, "java/lang/Object", JObject::null())?;
                 env.set_object_array_element(&result, 4, &missing)?;
                 return Ok(result.into_raw());
             }
@@ -289,7 +307,7 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_compile<'local>(
         }
 
         let warnings = env.new_string(&rendered.warnings)?;
-        let result = env.new_object_array(6, "java/lang/Object", JObject::null())?;
+        let result = env.new_object_array(7, "java/lang/Object", JObject::null())?;
         env.set_object_array_element(&result, 0, &sizes_array)?;
         env.set_object_array_element(&result, 1, &svgs)?;
         env.set_object_array_element(&result, 2, &layers)?;
@@ -298,6 +316,13 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_compile<'local>(
             let title = env.new_string(title)?;
             env.set_object_array_element(&result, 5, &title)?;
         }
+        let sections = env.new_object_array(rendered.sections.len() as jsize, "java/lang/String", JObject::null())?;
+        for (i, section) in rendered.sections.iter().enumerate() {
+            let section = env.new_string(section)?;
+            env.set_object_array_element(&sections, i as jsize, &section)?;
+            env.delete_local_ref(section)?;
+        }
+        env.set_object_array_element(&result, 6, &sections)?;
         Ok(result.into_raw())
     })
 }

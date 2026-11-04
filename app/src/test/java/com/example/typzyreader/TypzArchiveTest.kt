@@ -38,6 +38,14 @@ class TypzArchiveTest {
     }
 
     @Test
+    fun findsCoverImageAmongTheFiles() {
+        val files = mapOf("main.typ" to ByteArray(1), "images/cover.png" to byteArrayOf(1, 2))
+        assertArrayEquals(byteArrayOf(1, 2), TypzContents("main.typ", files, "images/cover.png").coverImage)
+        assertNull(TypzContents("main.typ", files, "images/missing.png").coverImage)
+        assertNull(TypzContents("main.typ", files).coverImage)
+    }
+
+    @Test
     fun acceptsOnlyThePagelessFormat() {
         assertNull(TypzArchive.formatProblem("pageless"))
         assertEquals("The \"book\" format is not implemented yet.", TypzArchive.formatProblem("book"))

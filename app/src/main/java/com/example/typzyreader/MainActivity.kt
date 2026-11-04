@@ -7,14 +7,17 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animate
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -33,6 +36,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,12 +44,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -53,10 +60,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -73,6 +82,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -105,6 +115,10 @@ private const val RESIZE_DEBOUNCE_MS = 150L
 /** How long after the last scroll step a half-hidden toolbar snaps fully in or out. */
 private const val BAR_SNAP_DELAY_MS = 150L
 
+/** The size of the cover in the book panel: its height, and at most the panel's usable width. */
+private val COVER_HEIGHT = 240.dp
+private val COVER_MAX_WIDTH = 312.dp
+
 /** What the document area shows. */
 private sealed interface ViewerContent {
     data class Message(val text: String) : ViewerContent
@@ -131,6 +145,9 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     // A file asked to be opened, until its format is checked; a refused one leaves [uri] alone.
     var requestedUri by rememberSaveable { mutableStateOf(initialUri) }
     var refusal by remember { mutableStateOf<String?>(null) }
+    var cover by remember { mutableStateOf<ImageBitmap?>(null) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
     var fileName by remember { mutableStateOf<String?>(null) }
     var bundle by remember { mutableStateOf<TypstBundle?>(null) }
     var viewWidthPx by remember { mutableStateOf<Int?>(null) }
@@ -193,6 +210,14 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
         }
     }
 
+    LaunchedEffect(bundle) {
+        cover = null
+        val data = bundle?.coverImage ?: return@LaunchedEffect
+        val maxWidthPx = (COVER_MAX_WIDTH.value * density).roundToInt()
+        val maxHeightPx = (COVER_HEIGHT.value * density).roundToInt()
+        cover = withContext(Dispatchers.Default) { decodeCover(data, maxWidthPx, maxHeightPx) }
+    }
+
     LaunchedEffect(bundle, layout) {
         val current = bundle ?: return@LaunchedEffect
         val target = layout ?: return@LaunchedEffect
@@ -229,93 +254,113 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
             OpenFilePrompt(onOpen = pickFile)
             return@Surface
         }
-        Box(Modifier.fillMaxSize()) {
-            // The document area, under the toolbar; its width is what documents are offered
-            // to lay out at.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
-                    .onSizeChanged { viewWidthPx = it.width }
-            ) {
-                when (val shown = content) {
-                    is ViewerContent.Message -> Text(
-                        text = shown.text,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(top = TopAppBarDefaults.TopAppBarExpandedHeight)
-                            .padding(16.dp),
-                    )
-                    // The first compile in a process also scans the fonts, so this can take a moment.
-                    ViewerContent.Loading -> CircularProgressIndicator(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .semantics { contentDescription = "Loading document" }
-                    )
-                    is ViewerContent.Document -> DocumentView(
-                        document = shown.document,
-                        layout = shown.layout,
-                        topPadding = TopAppBarDefaults.TopAppBarExpandedHeight,
-                        onScroll = { dy ->
-                            barState.heightOffset -= dy // kept within the bar's height
-                            documentScrolls++
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .semantics {
-                                contentDescription = "Typst document"
-                                stateDescription = describe(shown)
-                            },
-                    )
-                }
-            }
-            Column(Modifier.fillMaxWidth()) {
-                TopAppBar(
-                    title = {
-                        // The document's own title if it sets one, else the file's name.
-                        val title = (content as? ViewerContent.Document)?.document?.title ?: fileName
-                        Text(text = title.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    actions = {
-                        val shown = content
-                        if (shown is ViewerContent.Document && shown.document.warnings.isNotEmpty()) {
-                            IconButton(onClick = { showWarnings = true }) {
-                                Icon(painterResource(R.drawable.ic_warning), contentDescription = "Show warnings")
-                            }
-                        }
-                        // In a Box, so the menu drops down from the button.
-                        Box {
-                            IconButton(onClick = { showMenu = true }) {
-                                Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Menu")
-                            }
-                            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Open File") },
-                                    onClick = {
-                                        showMenu = false
-                                        pickFile()
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Settings") },
-                                    onClick = {
-                                        showMenu = false
-                                        showSettings = true
-                                    },
-                                )
-                            }
-                        }
-                    },
-                    windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-                    scrollBehavior = scrollBehavior,
+        val documentTitle = (content as? ViewerContent.Document)?.document?.title ?: fileName
+        // Back closes the panel rather than leaving the app.
+        BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            // Only for closing it: swiping it open would take sideways swipes from wide pages.
+            gesturesEnabled = drawerState.isOpen,
+            drawerContent = {
+                BookPanel(
+                    cover = cover,
+                    title = documentTitle.orEmpty(),
+                    sections = (content as? ViewerContent.Document)?.document?.sections.orEmpty(),
                 )
-                if (recompiling && showingDocument) {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics { contentDescription = "Updating layout" }
+            },
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                // The document area, under the toolbar; its width is what documents are offered
+                // to lay out at.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .windowInsetsPadding(WindowInsets.safeDrawing)
+                        .onSizeChanged { viewWidthPx = it.width }
+                ) {
+                    when (val shown = content) {
+                        is ViewerContent.Message -> Text(
+                            text = shown.text,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(top = TopAppBarDefaults.TopAppBarExpandedHeight)
+                                .padding(16.dp),
+                        )
+                        // The first compile in a process also scans the fonts, so this can take a moment.
+                        ViewerContent.Loading -> CircularProgressIndicator(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .semantics { contentDescription = "Loading document" }
+                        )
+                        is ViewerContent.Document -> DocumentView(
+                            document = shown.document,
+                            layout = shown.layout,
+                            topPadding = TopAppBarDefaults.TopAppBarExpandedHeight,
+                            onScroll = { dy ->
+                                barState.heightOffset -= dy // kept within the bar's height
+                                documentScrolls++
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .semantics {
+                                    contentDescription = "Typst document"
+                                    stateDescription = describe(shown)
+                                },
+                        )
+                    }
+                }
+                Column(Modifier.fillMaxWidth()) {
+                    TopAppBar(
+                        title = {
+                            // The document's own title if it sets one, else the file's name.
+                            Text(text = documentTitle.orEmpty(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(painterResource(R.drawable.ic_menu), contentDescription = "Book contents")
+                            }
+                        },
+                        actions = {
+                            val shown = content
+                            if (shown is ViewerContent.Document && shown.document.warnings.isNotEmpty()) {
+                                IconButton(onClick = { showWarnings = true }) {
+                                    Icon(painterResource(R.drawable.ic_warning), contentDescription = "Show warnings")
+                                }
+                            }
+                            // In a Box, so the menu drops down from the button.
+                            Box {
+                                IconButton(onClick = { showMenu = true }) {
+                                    Icon(painterResource(R.drawable.ic_more_vert), contentDescription = "Menu")
+                                }
+                                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Open File") },
+                                        onClick = {
+                                            showMenu = false
+                                            pickFile()
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Settings") },
+                                        onClick = {
+                                            showMenu = false
+                                            showSettings = true
+                                        },
+                                    )
+                                }
+                            }
+                        },
+                        windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+                        scrollBehavior = scrollBehavior,
                     )
+                    if (recompiling && showingDocument) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics { contentDescription = "Updating layout" }
+                        )
+                    }
                 }
             }
         }
@@ -385,6 +430,38 @@ private fun SettingsDialog(
             }
         },
     )
+}
+
+/** The panel opened from the toolbar: the book's cover, its title and its top-level sections. */
+@Composable
+private fun BookPanel(cover: ImageBitmap?, title: String, sections: List<String>) {
+    ModalDrawerSheet {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+        ) {
+            val coverModifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .height(COVER_HEIGHT)
+            if (cover != null) {
+                Image(cover, contentDescription = "Book cover", modifier = coverModifier)
+            } else {
+                Image(painterResource(R.drawable.default_cover), contentDescription = "Book cover", modifier = coverModifier)
+            }
+            Spacer(Modifier.height(24.dp))
+            Text(text = title.uppercase(), style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(16.dp))
+            for (section in sections) {
+                Row(Modifier.padding(vertical = 4.dp)) {
+                    Text("•")
+                    Spacer(Modifier.width(8.dp))
+                    Text(section)
+                }
+            }
+        }
+    }
 }
 
 /** Shown while no file is open. */

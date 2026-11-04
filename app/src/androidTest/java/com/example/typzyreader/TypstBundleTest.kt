@@ -1,5 +1,6 @@
 package com.example.typzyreader
 
+import android.graphics.Bitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -7,6 +8,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class TypstBundleTest {
@@ -104,6 +106,40 @@ class TypstBundleTest {
         val pages = compile(*reflowable("Hello\n${assertTextWidth()}\n#pagebreak()\nWorld"))
         assertEquals(2, pages.size)
         assertPageless(pages)
+    }
+
+    @Test
+    fun reportsTopLevelSections() {
+        val document = compileDocument(
+            "main.typ" to """
+                = One
+                == Not top-level
+                #heading(outlined: false)[Not outlined]
+                = Two *bold*
+                #page(width: 600pt)[= On a wide page]
+            """.trimIndent()
+        )
+        assertEquals(listOf("One", "Two bold", "On a wide page"), document.sections)
+        assertEquals(emptyList<String>(), compileDocument("main.typ" to "No headings").sections)
+    }
+
+    @Test
+    fun keepsCoverImage() {
+        val files = mapOf("main.typ" to "= Hello".toByteArray(), "c.png" to byteArrayOf(1, 2))
+        TypstBundle.open(TypzContents("main.typ", files, "c.png")).use { assertEquals(2, it.coverImage?.size) }
+        TypstBundle.open(TypzContents("main.typ", files)).use { assertEquals(null, it.coverImage) }
+    }
+
+    @Test
+    fun decodesCoversAndShrinksLargeOnes() {
+        val png = ByteArrayOutputStream().also {
+            Bitmap.createBitmap(1000, 1500, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, it)
+        }.toByteArray()
+        val cover = decodeCover(png, 200, 300)!!
+        // Shrunk by 4, the most that keeps it at least 200 x 300.
+        assertEquals(250, cover.width)
+        assertEquals(375, cover.height)
+        assertEquals(null, decodeCover("not an image".toByteArray(), 200, 300))
     }
 
     @Test

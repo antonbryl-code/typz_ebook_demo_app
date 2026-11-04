@@ -1,7 +1,10 @@
 package com.example.typzyreader
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -92,6 +95,32 @@ class TypzManifestTest {
             "The \"book\" format is not implemented yet.",
             TypzArchive.formatProblem(ByteArrayInputStream(out.toByteArray())),
         )
+    }
+
+    @Test
+    fun readsCoverImageNamedByManifest() {
+        val contents = read(
+            "[project]\nentrypoint = \"main.typ\"\n[tool.typzy-reader]\ncover-img = \"./images/cover.png\"\n",
+            "main.typ" to "= Hello",
+            "images/cover.png" to "png",
+        )
+        assertEquals("images/cover.png", contents.coverImg)
+        assertArrayEquals("png".toByteArray(), contents.coverImage)
+    }
+
+    @Test
+    fun hasNoCoverImageWithoutAUsableOne() {
+        val project = "[project]\nentrypoint = \"main.typ\"\n"
+        for (extra in listOf("", "[tool.typzy-reader]\nformat = \"pageless\"", "[tool.typzy-reader]\ncover-img = 3", "[tool.typzy-reader]\ncover-img = \"../x.png\"", "[tool.typzy-reader]\ncover-img = \"missing.png\"")) {
+            assertNull(extra, read(project + extra, "main.typ" to "= Hello").coverImage)
+        }
+    }
+
+    @Test
+    fun defaultCoverIsOneByOneAndAHalf() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val cover = context.getDrawable(R.drawable.default_cover)!!
+        assertEquals(1.5f, cover.intrinsicHeight.toFloat() / cover.intrinsicWidth, 0.001f)
     }
 
     @Test(expected = IllegalArgumentException::class)

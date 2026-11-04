@@ -30,6 +30,12 @@ internal object TypstNative {
      * it names none. Throws [TypzFormatException] if the manifest is malformed.
      */
     external fun manifestFormat(manifest: ByteArray): String
+    /**
+     * The `cover-img` in the `[tool.typzy-reader]` section of a typst.toml, as a normalized path
+     * from the root of the .typz; null if it names none or the path can't be inside the .typz.
+     * Throws [TypzFormatException] if the manifest is malformed.
+     */
+    external fun manifestCoverImg(manifest: ByteArray): String?
     external fun bundleEntrypoint(handle: Long): String
     external fun bundleFileCount(handle: Long): Int
     /** Size in bytes of the file at [path], or -1 if the bundle has no such file. */
@@ -37,9 +43,10 @@ internal object TypstNative {
     /**
      * Compiles the bundle, offering [widthPt] and [marginPt] through `sys.inputs`, and renders it.
      * Returns `[sizes: FloatArray, svgs: Array<String>, textLayers: Array<String>, warnings: String,
-     * null, title: String?]`, sizes being `width0, height0, width1, height1, ..` in points. If
-     * packages must be downloaded first, returns `[null, null, null, null, missing: Array<String>,
-     * null]` with specs like `@preview/cetz:0.3.4` instead. Throws [TypstCompileException] on errors.
+     * null, title: String?, sections: Array<String>]`, sizes being `width0, height0, width1, height1,
+     * ..` in points. If packages must be downloaded first, returns `[null, null, null, null, missing:
+     * Array<String>, null, null]` with specs like `@preview/cetz:0.3.4` instead. Throws
+     * [TypstCompileException] on errors.
      */
     external fun compile(handle: Long, widthPt: Float, marginPt: Float): Array<Any?>
 

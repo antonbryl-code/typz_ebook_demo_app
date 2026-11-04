@@ -1,5 +1,5 @@
 //! The `typst.toml` manifest at the root of a .typz file, which names the file to compile and,
-//! optionally, the format the document is meant to be read in:
+//! optionally, the format the document is meant to be read in and the image of its cover:
 //!
 //! ```toml
 //! [project]
@@ -7,9 +7,11 @@
 //!
 //! [tool.typzy-reader]
 //! format = "pageless"
+//! cover-img = "images/cover.png"
 //! ```
 
 use toml::{Table, Value};
+use typst::syntax::VirtualPath;
 
 /// The format of documents whose manifest doesn't name one.
 const DEFAULT_FORMAT: &str = "pageless";
@@ -35,17 +37,33 @@ pub fn entrypoint(manifest: &[u8]) -> Result<String, String> {
 /// none. Not checked against the known formats; a value that isn't a string comes back as TOML.
 pub fn format(manifest: &[u8]) -> Result<String, String> {
     let table = parse(manifest)?;
-    let format = table
-        .get("tool")
-        .and_then(Value::as_table)
-        .and_then(|tool| tool.get("typzy-reader"))
-        .and_then(Value::as_table)
-        .and_then(|section| section.get("format"));
-    Ok(match format {
+    Ok(match tool_field(&table, "format") {
         None => DEFAULT_FORMAT.to_owned(),
         Some(Value::String(format)) => format.clone(),
         Some(other) => other.to_string(),
     })
+}
+
+/// The `cover-img` of the manifest's `[tool.typzy-reader]` section, as a normalized path from the
+/// root of the .typz file. None if there is none, or if it can't be a path inside the .typz file:
+/// a book with an unusable cover is still readable, and gets the default cover.
+pub fn cover_img(manifest: &[u8]) -> Result<Option<String>, String> {
+    let table = parse(manifest)?;
+    Ok(tool_field(&table, "cover-img")
+        .and_then(Value::as_str)
+        .and_then(|path| VirtualPath::new(path).ok())
+        .map(|path| path.get_without_slash().to_owned())
+        .filter(|path| !path.is_empty()))
+}
+
+/// A field of the `[tool.typzy-reader]` section, if there is one.
+fn tool_field<'a>(table: &'a Table, name: &str) -> Option<&'a Value> {
+    table
+        .get("tool")
+        .and_then(Value::as_table)
+        .and_then(|tool| tool.get("typzy-reader"))
+        .and_then(Value::as_table)
+        .and_then(|section| section.get(name))
 }
 
 fn parse(manifest: &[u8]) -> Result<Table, String> {
@@ -55,7 +73,7 @@ fn parse(manifest: &[u8]) -> Result<Table, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{entrypoint, format};
+    use super::{cover_img, entrypoint, format};
 
     #[test]
     fn reads_project_entrypoint() {
@@ -101,5 +119,21 @@ mod tests {
     #[test]
     fn shows_other_format_values_as_toml() {
         assert_eq!(format(b"[tool.typzy-reader]\nformat = 3"), Ok("3".into()));
+    }
+
+    #[test]
+    fn normalizes_cover_img() {
+        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = \"images/c.png\""), Ok(Some("images/c.png".into())));
+        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = \"./images/../c.png\""), Ok(Some("c.png".into())));
+    }
+
+    #[test]
+    fn has_no_cover_img_without_a_usable_path() {
+        assert_eq!(cover_img(b"[project]\nentrypoint = \"a.typ\""), Ok(None));
+        assert_eq!(cover_img(b"[tool.typzy-reader]\nformat = \"book\""), Ok(None));
+        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = 3"), Ok(None));
+        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = \"\""), Ok(None));
+        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = \"../c.png\""), Ok(None));
+        assert!(cover_img(b"[tool\n").is_err());
     }
 }

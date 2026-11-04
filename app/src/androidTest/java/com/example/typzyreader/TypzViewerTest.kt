@@ -12,6 +12,8 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -120,6 +122,35 @@ class TypzViewerTest {
         }
         waitForDocument(laidOut(400))
         compose.onNodeWithText("Can't open this file").assertDoesNotExist()
+    }
+
+    @Test
+    fun bookPanelShowsCoverTitleAndSections() {
+        val mainTyp = "#set document(title: \"My Book\")\n= Chapter One\n== Part\n= Chapter Two"
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp))
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("1 page laid out")
+        compose.onNodeWithText("MY BOOK").assertIsNotDisplayed()
+
+        compose.onNodeWithContentDescription("Book contents").performClick()
+        compose.onNodeWithContentDescription("Book cover").assertIsDisplayed()
+        compose.onNodeWithText("MY BOOK").assertIsDisplayed()
+        compose.onNodeWithText("Chapter One").assertIsDisplayed()
+        compose.onNodeWithText("Chapter Two").assertIsDisplayed()
+        compose.onNodeWithText("Part").assertDoesNotExist()
+    }
+
+    @Test
+    fun bookPanelFallsBackToFileName() {
+        val uri = Uri.fromFile(writeTypz())
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("1 page laid out")
+        compose.onNodeWithContentDescription("Book contents").performClick()
+        compose.onNodeWithText("VIEWER-TEST.TYPZ").assertIsDisplayed()
     }
 
     @Test

@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use typst::diag::{FileError, FileResult, SourceDiagnostic};
-use typst::foundations::{Bytes, Datetime, Duration};
-use typst::model::Document;
+use typst::foundations::{Bytes, Datetime, Duration, NativeElement, StyleChain};
+use typst::introspection::Introspector;
+use typst::model::{Document, HeadingElem};
 use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
@@ -48,6 +49,8 @@ pub struct Rendered {
     pub warnings: String,
     /// The title set with `#set document(title: ..)`, as plain text, if any and not blank.
     pub title: Option<String>,
+    /// The names of the top-level sections: level 1 headings that an outline would list.
+    pub sections: Vec<String>,
 }
 
 /// A page as a standalone SVG, sized in points (`width="..pt"` with a matching viewBox), and
@@ -174,7 +177,21 @@ impl Bundle {
             .map(str::trim)
             .filter(|title| !title.is_empty())
             .map(str::to_owned);
-        Ok(Rendered { pages, warnings: self.format_diagnostics(&result.warnings), title })
+        let sections = document
+            .introspector()
+            .query(&HeadingElem::ELEM.select())
+            .iter()
+            .filter_map(|content| content.to_packed::<HeadingElem>())
+            .filter(|heading| {
+                heading.outlined.get(StyleChain::default())
+                    && heading.resolve_level(StyleChain::default()).get() == 1
+            })
+            .map(|heading| {
+                heading.body.plain_text().split_whitespace().collect::<Vec<_>>().join(" ")
+            })
+            .filter(|name| !name.is_empty())
+            .collect();
+        Ok(Rendered { pages, warnings: self.format_diagnostics(&result.warnings), title, sections })
     }
 
     /// Renders diagnostics as `path:line:col: message` lines, followed by any hints.

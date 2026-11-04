@@ -38,6 +38,16 @@ class ViewGeometryTest {
     }
 
     @Test
+    fun shrinksCoversToAboutTheMaximum() {
+        assertEquals(1, coverSampleSize(100, 150, 300, 450))
+        assertEquals(1, coverSampleSize(599, 899, 300, 450))
+        assertEquals(2, coverSampleSize(600, 900, 300, 450))
+        assertEquals(8, coverSampleSize(2400, 3600, 300, 450))
+        // Stays large enough in both directions, however unusual the shape.
+        assertEquals(1, coverSampleSize(5000, 100, 300, 450))
+    }
+
+    @Test
     fun distrustsImplausibleDpi() {
         assertEquals(428.625f, ViewGeometry.physicalDpi(428.625f, 420), 0f)
         assertEquals(420f, ViewGeometry.physicalDpi(0f, 420), 0f)

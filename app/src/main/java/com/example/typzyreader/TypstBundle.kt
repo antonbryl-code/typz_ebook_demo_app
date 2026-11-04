@@ -4,10 +4,15 @@ import java.io.File
 import java.io.IOException
 
 /**
- * A compiled document: its pages in order, Typst's warnings (empty if none), and the title set
- * with `#set document(title: ..)` as plain text (null if none).
+ * A compiled document: its pages in order, Typst's warnings (empty if none), the title set with
+ * `#set document(title: ..)` as plain text (null if none), and the names of its top-level sections.
  */
-class TypstDocument(val pages: List<TypstPage>, val warnings: String, val title: String? = null)
+class TypstDocument(
+    val pages: List<TypstPage>,
+    val warnings: String,
+    val title: String? = null,
+    val sections: List<String> = emptyList(),
+)
 
 /**
  * A page as a standalone SVG, `width="[widthPt]pt"` with a matching viewBox, plus [textLayer]:
@@ -24,6 +29,8 @@ class TypstPage(val svg: String, val textLayer: String, val widthPt: Float, val 
 class TypstBundle private constructor(
     private var handle: Long,
     private val packageCache: File?,
+    /** The undecoded cover image, null if the default cover applies; see [TypzContents.coverImage]. */
+    val coverImage: ByteArray?,
 ) : AutoCloseable {
     val entrypoint: String
         @Synchronized get() = TypstNative.bundleEntrypoint(checkOpen())
@@ -63,7 +70,9 @@ class TypstBundle private constructor(
                 @Suppress("UNCHECKED_CAST")
                 layers as Array<String>
                 val pages = svgs.mapIndexed { i, svg -> TypstPage(svg, layers[i], sizes[2 * i], sizes[2 * i + 1]) }
-                return TypstDocument(pages, warnings as String, result[5] as String?)
+                @Suppress("UNCHECKED_CAST")
+                val sections = (result[6] as Array<String>).toList()
+                return TypstDocument(pages, warnings as String, result[5] as String?, sections)
             }
             @Suppress("UNCHECKED_CAST")
             missing as Array<String>
@@ -110,7 +119,7 @@ class TypstBundle private constructor(
             val paths = contents.files.keys.toTypedArray()
             val data = Array(paths.size) { contents.files.getValue(paths[it]) }
             val handle = TypstNative.openBundle(paths, data, contents.entrypoint, packageCache?.path)
-            return TypstBundle(handle, packageCache)
+            return TypstBundle(handle, packageCache, contents.coverImage)
         }
     }
 }
