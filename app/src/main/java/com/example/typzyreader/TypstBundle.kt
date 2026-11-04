@@ -5,14 +5,17 @@ import java.io.IOException
 
 /**
  * A compiled document: its pages in order, Typst's warnings (empty if none), the title set with
- * `#set document(title: ..)` as plain text (null if none), and the names of its top-level sections.
+ * `#set document(title: ..)` as plain text (null if none), and its top-level sections.
  */
 class TypstDocument(
     val pages: List<TypstPage>,
     val warnings: String,
     val title: String? = null,
-    val sections: List<String> = emptyList(),
+    val sections: List<TypstSection> = emptyList(),
 )
+
+/** A top-level section: its name, and where it starts: a page index and points from that page's top. */
+class TypstSection(val name: String, val pageIndex: Int, val yPt: Float)
 
 /**
  * A page as a standalone SVG, `width="[widthPt]pt"` with a matching viewBox, plus [textLayer]:
@@ -71,7 +74,11 @@ class TypstBundle private constructor(
                 layers as Array<String>
                 val pages = svgs.mapIndexed { i, svg -> TypstPage(svg, layers[i], sizes[2 * i], sizes[2 * i + 1]) }
                 @Suppress("UNCHECKED_CAST")
-                val sections = (result[6] as Array<String>).toList()
+                val names = result[6] as Array<String>
+                val positions = result[7] as FloatArray
+                val sections = names.mapIndexed { i, name ->
+                    TypstSection(name, positions[2 * i].toInt(), positions[2 * i + 1])
+                }
                 return TypstDocument(pages, warnings as String, result[5] as String?, sections)
             }
             @Suppress("UNCHECKED_CAST")

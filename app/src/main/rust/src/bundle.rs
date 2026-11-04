@@ -49,8 +49,17 @@ pub struct Rendered {
     pub warnings: String,
     /// The title set with `#set document(title: ..)`, as plain text, if any and not blank.
     pub title: Option<String>,
-    /// The names of the top-level sections: level 1 headings that an outline would list.
-    pub sections: Vec<String>,
+    /// The top-level sections: level 1 headings that an outline would list.
+    pub sections: Vec<Section>,
+}
+
+/// A top-level section of a document: its name and where it starts.
+pub struct Section {
+    pub name: String,
+    /// The index of its page.
+    pub page: usize,
+    /// How far down that page it starts, in points.
+    pub y: f64,
 }
 
 /// A page as a standalone SVG, sized in points (`width="..pt"` with a matching viewBox), and
@@ -177,19 +186,24 @@ impl Bundle {
             .map(str::trim)
             .filter(|title| !title.is_empty())
             .map(str::to_owned);
-        let sections = document
-            .introspector()
+        let introspector = document.introspector();
+        let sections = introspector
             .query(&HeadingElem::ELEM.select())
             .iter()
-            .filter_map(|content| content.to_packed::<HeadingElem>())
-            .filter(|heading| {
-                heading.outlined.get(StyleChain::default())
-                    && heading.resolve_level(StyleChain::default()).get() == 1
+            .filter_map(|content| {
+                let heading = content.to_packed::<HeadingElem>()?;
+                let top_level = heading.outlined.get(StyleChain::default())
+                    && heading.resolve_level(StyleChain::default()).get() == 1;
+                if !top_level {
+                    return None;
+                }
+                let name = heading.body.plain_text().split_whitespace().collect::<Vec<_>>().join(" ");
+                if name.is_empty() {
+                    return None;
+                }
+                let position = introspector.position(content.location()?)?;
+                Some(Section { name, page: position.page.get() - 1, y: position.point.y.to_pt() })
             })
-            .map(|heading| {
-                heading.body.plain_text().split_whitespace().collect::<Vec<_>>().join(" ")
-            })
-            .filter(|name| !name.is_empty())
             .collect();
         Ok(Rendered { pages, warnings: self.format_diagnostics(&result.warnings), title, sections })
     }

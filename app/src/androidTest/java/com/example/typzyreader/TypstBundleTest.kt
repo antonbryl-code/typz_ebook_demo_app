@@ -119,8 +119,19 @@ class TypstBundleTest {
                 #page(width: 600pt)[= On a wide page]
             """.trimIndent()
         )
-        assertEquals(listOf("One", "Two bold", "On a wide page"), document.sections)
-        assertEquals(emptyList<String>(), compileDocument("main.typ" to "No headings").sections)
+        assertEquals(listOf("One", "Two bold", "On a wide page"), document.sections.map { it.name })
+        assertEquals(0, compileDocument("main.typ" to "No headings").sections.size)
+    }
+
+    @Test
+    fun reportsWhereSectionsStart() {
+        val sections = compileDocument(
+            "main.typ" to "#set page(margin: 20pt)\n= One\nText\n= Two\n#pagebreak()\n= Three"
+        ).sections
+        assertEquals(listOf(0, 0, 1), sections.map { it.pageIndex })
+        assertTrue("first ${sections[0].yPt}", sections[0].yPt >= 20f && sections[0].yPt < 30f)
+        assertTrue("second ${sections[1].yPt}", sections[1].yPt > sections[0].yPt)
+        assertTrue("third ${sections[2].yPt}", sections[2].yPt >= 20f && sections[2].yPt < 30f)
     }
 
     @Test

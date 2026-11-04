@@ -143,6 +143,19 @@ class TypzViewerTest {
     }
 
     @Test
+    fun tappingASectionClosesThePanel() {
+        val uri = Uri.fromFile(writeTypz(mainTyp = "= Chapter One\n#pagebreak()\n= Chapter Two"))
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("2 pages laid out")
+        compose.onNodeWithContentDescription("Book contents").performClick()
+        compose.onNodeWithText("Chapter Two").assertIsDisplayed().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Chapter Two").assertIsNotDisplayed()
+    }
+
+    @Test
     fun bookPanelFallsBackToFileName() {
         val uri = Uri.fromFile(writeTypz())
         compose.setContent {

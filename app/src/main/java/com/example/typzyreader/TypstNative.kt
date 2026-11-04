@@ -43,10 +43,11 @@ internal object TypstNative {
     /**
      * Compiles the bundle, offering [widthPt] and [marginPt] through `sys.inputs`, and renders it.
      * Returns `[sizes: FloatArray, svgs: Array<String>, textLayers: Array<String>, warnings: String,
-     * null, title: String?, sections: Array<String>]`, sizes being `width0, height0, width1, height1,
-     * ..` in points. If packages must be downloaded first, returns `[null, null, null, null, missing:
-     * Array<String>, null, null]` with specs like `@preview/cetz:0.3.4` instead. Throws
-     * [TypstCompileException] on errors.
+     * null, title: String?, sections: Array<String>, sectionPositions: FloatArray]`, sizes being
+     * `width0, height0, width1, height1, ..` in points, and sectionPositions `page0, y0, page1, y1,
+     * ..` in page indices and points. If packages must be downloaded first, returns `[null, null,
+     * null, null, missing: Array<String>, null, null, null]` with specs like `@preview/cetz:0.3.4`
+     * instead. Throws [TypstCompileException] on errors.
      */
     external fun compile(handle: Long, widthPt: Float, marginPt: Float): Array<Any?>
 

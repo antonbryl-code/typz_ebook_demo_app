@@ -14,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animate
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -82,6 +83,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -148,6 +150,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     var cover by remember { mutableStateOf<ImageBitmap?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val sectionJumps = remember { MutableSharedFlow<TypstSection>(extraBufferCapacity = 1) }
     var fileName by remember { mutableStateOf<String?>(null) }
     var bundle by remember { mutableStateOf<TypstBundle?>(null) }
     var viewWidthPx by remember { mutableStateOf<Int?>(null) }
@@ -266,6 +269,11 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                     cover = cover,
                     title = documentTitle.orEmpty(),
                     sections = (content as? ViewerContent.Document)?.document?.sections.orEmpty(),
+                    onSectionClick = { section ->
+                        barState.heightOffset = 0f // the section lands just below the toolbar
+                        sectionJumps.tryEmit(section)
+                        scope.launch { drawerState.close() }
+                    },
                 )
             },
         ) {
@@ -297,6 +305,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                             document = shown.document,
                             layout = shown.layout,
                             topPadding = TopAppBarDefaults.TopAppBarExpandedHeight,
+                            sectionJumps = sectionJumps,
                             onScroll = { dy ->
                                 barState.heightOffset -= dy // kept within the bar's height
                                 documentScrolls++
@@ -432,9 +441,14 @@ private fun SettingsDialog(
     )
 }
 
-/** The panel opened from the toolbar: the book's cover, its title and its top-level sections. */
+/** The panel opened from the toolbar: the book's cover, its title and its top-level sections to jump to. */
 @Composable
-private fun BookPanel(cover: ImageBitmap?, title: String, sections: List<String>) {
+private fun BookPanel(
+    cover: ImageBitmap?,
+    title: String,
+    sections: List<TypstSection>,
+    onSectionClick: (TypstSection) -> Unit,
+) {
     ModalDrawerSheet {
         Column(
             modifier = Modifier
@@ -454,10 +468,15 @@ private fun BookPanel(cover: ImageBitmap?, title: String, sections: List<String>
             Text(text = title.uppercase(), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(16.dp))
             for (section in sections) {
-                Row(Modifier.padding(vertical = 4.dp)) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable { onSectionClick(section) }
+                        .padding(vertical = 8.dp)
+                ) {
                     Text("•")
                     Spacer(Modifier.width(8.dp))
-                    Text(section)
+                    Text(section.name)
                 }
             }
         }

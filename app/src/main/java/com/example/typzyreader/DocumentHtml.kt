@@ -36,8 +36,7 @@ object DocumentHtml {
         viewWidthPt: Float? = null,
         ptPerCssPx: Float = 0.75f,
     ): String = buildString {
-        // A document that reflowed has a page exactly as wide as the view.
-        val reflowed = document.pages.any { matches(it, viewWidthPt) }
+        val reflowed = reflowed(document, viewWidthPt)
         val scheme = if (dark) "dark" else "light"
         val background = if (dark) "#202124" else "#e8e8e8"
         // Against a white page, the light background would barely show.
@@ -128,6 +127,36 @@ object DocumentHtml {
         }
         append("</body></html>")
     }
+
+    /**
+     * How far below the first page's top [section] starts, in CSS px at no zoom, for a view
+     * [viewWidthCssPx] wide. Follows the page sizes that [build] asks for with the same arguments.
+     */
+    fun sectionTopPx(
+        document: TypstDocument,
+        section: TypstSection,
+        viewWidthCssPx: Float,
+        viewWidthPt: Float?,
+        ptPerCssPx: Float,
+    ): Float {
+        val reflowed = reflowed(document, viewWidthPt)
+        // The width a page ends up at sets the scale of everything on it.
+        fun cssPxPerPt(page: TypstPage): Float {
+            val widthPx = page.widthPt / ptPerCssPx
+            return when {
+                reflowed && matches(page, viewWidthPt) -> viewWidthCssPx
+                reflowed -> widthPx
+                else -> minOf(viewWidthCssPx, widthPx)
+            } / page.widthPt
+        }
+        val pagesAbove = document.pages.take(section.pageIndex).sumOf { (it.heightPt * cssPxPerPt(it)).toDouble() }
+        val page = document.pages.getOrNull(section.pageIndex) ?: return pagesAbove.toFloat()
+        return pagesAbove.toFloat() + section.yPt * cssPxPerPt(page)
+    }
+
+    /** A document that reflowed has a page exactly as wide as the view. */
+    private fun reflowed(document: TypstDocument, viewWidthPt: Float?) =
+        document.pages.any { matches(it, viewWidthPt) }
 
     /** Whether [page] is as wide as a view [viewWidthPt] wide, i.e. was reflowed to it. */
     private fun matches(page: TypstPage, viewWidthPt: Float?) =

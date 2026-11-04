@@ -10,18 +10,25 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlin.math.roundToInt
 
 /**
  * Shows a compiled document in a WebView; see [DocumentHtml] for the page layout.
  * [layout] is what the document was compiled for, [topPadding] leaves room above the document
  * for a toolbar laid over the view, and [onScroll] gets each vertical scroll step in pixels
- * (positive when scrolling down).
+ * (positive when scrolling down). Each section from [sectionJumps] is scrolled to, leaving it just
+ * below that toolbar.
  */
 @Composable
 fun DocumentView(
@@ -30,14 +37,24 @@ fun DocumentView(
     modifier: Modifier = Modifier,
     topPadding: Dp = 0.dp,
     onScroll: (Int) -> Unit = {},
+    sectionJumps: Flow<TypstSection> = emptyFlow(),
 ) {
     val dark = isSystemInDarkTheme()
     // With the device-width viewport, 1 CSS px = 1 dp.
     val html = remember(document, layout, dark, topPadding) {
         DocumentHtml.build(document, dark, topPadding.value.roundToInt(), layout.widthPt, layout.ptPerCssPx)
     }
+    var webView by remember { mutableStateOf<DocumentWebView?>(null) }
+    LaunchedEffect(webView, document, layout, sectionJumps) {
+        val view = webView ?: return@LaunchedEffect
+        sectionJumps.collect { section ->
+            val viewWidthCssPx = view.width / view.resources.displayMetrics.density
+            val top = DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx)
+            view.jumpTo(top - SECTION_GAP_PX)
+        }
+    }
     AndroidView(
-        factory = ::DocumentWebView,
+        factory = { context -> DocumentWebView(context).also { webView = it } },
         update = {
             it.onScroll = onScroll
             it.show(html)
@@ -46,6 +63,9 @@ fun DocumentView(
         modifier = modifier,
     )
 }
+
+/** Space kept between the toolbar and a section scrolled to, in CSS px. */
+private const val SECTION_GAP_PX = 8f
 
 /**
  * A WebView locked down for untrusted content: no JavaScript, file, content or network access,
@@ -57,7 +77,7 @@ private class DocumentWebView(context: Context) : WebView(context) {
     private var shownHtml: String? = null
     var onScroll: (Int) -> Unit = {}
 
-    /** Where [show] restores the scroll position to; that scroll isn't reported to [onScroll]. */
+    /** Where [show] or [jumpTo] scrolls to; that scroll isn't reported to [onScroll]. */
     private var restoringTo: Int? = null
 
     init {
@@ -89,6 +109,17 @@ private class DocumentWebView(context: Context) : WebView(context) {
                 scrollTo(0, y)
             }
         })
+    }
+
+    /** Scrolls to [cssPxBelowTop] CSS px from the top of the page, as far as the document allows. */
+    fun jumpTo(cssPxBelowTop: Float) {
+        if (contentHeight == 0) return
+        // Allows for pinch zoom, which changes the pixels per CSS px.
+        val pxPerCssPx = computeVerticalScrollRange().toFloat() / contentHeight
+        val maxY = (computeVerticalScrollRange() - computeVerticalScrollExtent()).coerceAtLeast(0)
+        val y = (cssPxBelowTop * pxPerCssPx).roundToInt().coerceIn(0, maxY)
+        if (y != scrollY) restoringTo = y
+        scrollTo(0, y)
     }
 
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {

@@ -32,6 +32,38 @@ class DocumentHtmlTest {
     }
 
     @Test
+    fun findsSectionsBelowThePagesAboveThem() {
+        val document = TypstDocument(listOf(page(300f, 40f, "a"), page(300f, 60f, "b")), "")
+        // In a 400 CSS px view at 0.75pt per CSS px: 40pt and 30pt make 70pt, or 93.33 CSS px.
+        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f)
+        assertEquals(93.33f, top, 0.01f)
+    }
+
+    @Test
+    fun findsSectionsOnPagesThatFillTheView() {
+        // A reflowed page fills the view even if that's a fraction wider than its compiled width.
+        val document = TypstDocument(listOf(page(300f, 30f, "a")), "")
+        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 0, 30f), 410f, 300f, 0.75f)
+        assertEquals(41f, top, 0.01f)
+    }
+
+    @Test
+    fun findsSectionsOnWidePagesOfReflowedDocuments() {
+        // The 600pt page keeps its size, at the same 4/3 CSS px per point as the 300pt one above.
+        val document = TypstDocument(listOf(page(300f, 30f, "a"), page(600f, 60f, "b")), "")
+        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f)
+        assertEquals(80f, top, 0.01f)
+    }
+
+    @Test
+    fun findsSectionsOnPagesScaledDownToFit() {
+        // Not reflowed: a 600pt page in a 400 CSS px view is at 2/3 CSS px per point.
+        val document = TypstDocument(listOf(page(600f, 60f, "a"), page(600f, 60f, "b")), "")
+        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f)
+        assertEquals(60f, top, 0.01f)
+    }
+
+    @Test
     fun putsEachPageInARowThatScrollsSideways() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), ""), dark = false)
         assertEquals(2, Regex("<div class=\"row\"><div class=\"scroller\"><div class=\"page\"").findAll(html).count())
