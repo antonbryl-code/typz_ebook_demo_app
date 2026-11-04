@@ -54,8 +54,10 @@ class DocumentHtmlTest {
         assertTrue(html, html.contains("right: 0; animation-name: more-right;"))
         assertTrue(html, html.contains("@keyframes more-left { 0% { opacity: 0; } 1%, 100% { opacity: 1; } }"))
         assertTrue(html, html.contains("@keyframes more-right { 0%, 99% { opacity: 1; } 100% { opacity: 0; } }"))
-        // The teeth are cut in the background's color.
+        // The teeth stand out from the white page in both modes.
         assertEquals(2, Regex("conic-gradient\\([^,]*, #202124 0 90deg").findAll(html).count())
+        val light = DocumentHtml.build(TypstDocument(listOf(page(600f, 60f, "a")), ""), dark = false, viewWidthPt = 300f)
+        assertEquals(2, Regex("conic-gradient\\([^,]*, #9e9e9e 0 90deg").findAll(light).count())
     }
 
     @Test

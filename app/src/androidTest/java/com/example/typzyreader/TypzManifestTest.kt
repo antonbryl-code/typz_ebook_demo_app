@@ -117,10 +117,10 @@ class TypzManifestTest {
     }
 
     @Test
-    fun defaultCoverIsOneByOneAndAHalf() {
+    fun defaultCoverIsA4Shaped() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val cover = context.getDrawable(R.drawable.default_cover)!!
-        assertEquals(1.5f, cover.intrinsicHeight.toFloat() / cover.intrinsicWidth, 0.001f)
+        assertEquals(1.414f, cover.intrinsicHeight.toFloat() / cover.intrinsicWidth, 0.005f)
     }
 
     @Test(expected = IllegalArgumentException::class)

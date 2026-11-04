@@ -40,6 +40,8 @@ object DocumentHtml {
         val reflowed = document.pages.any { matches(it, viewWidthPt) }
         val scheme = if (dark) "dark" else "light"
         val background = if (dark) "#202124" else "#e8e8e8"
+        // Against a white page, the light background would barely show.
+        val toothColor = if (dark) background else "#9e9e9e"
         append(
             """
             <!DOCTYPE html>
@@ -53,7 +55,7 @@ object DocumentHtml {
               /* One per page; its scroller scrolls sideways when the page is wider than the view. */
               .row { position: relative; timeline-scope: --x; }
               .scroller { overflow-x: auto; overflow-y: hidden; scroll-timeline: --x inline; }
-              /* Serrated edges, cut in the background's color, where the page continues beyond
+              /* Serrated edges, cut in a color that stands out from the page, where it continues beyond
                  the view. They're shown by animations driven by the scroller's position (no
                  JavaScript needed); a page that doesn't scroll has no active timeline, so they
                  stay hidden, as they do on WebViews without scroll-driven animations. */
@@ -65,12 +67,12 @@ object DocumentHtml {
               }
               .row::before {
                 left: 0; animation-name: more-left;
-                background: conic-gradient(from 225deg at 100% 50%, $background 0 90deg, transparent 0)
+                background: conic-gradient(from 225deg at 100% 50%, $toothColor 0 90deg, transparent 0)
                   0 0 / ${TOOTH_DEPTH_PX}px ${TOOTH_PITCH_PX}px repeat-y;
               }
               .row::after {
                 right: 0; animation-name: more-right;
-                background: conic-gradient(from 45deg at 0 50%, $background 0 90deg, transparent 0)
+                background: conic-gradient(from 45deg at 0 50%, $toothColor 0 90deg, transparent 0)
                   0 0 / ${TOOTH_DEPTH_PX}px ${TOOTH_PITCH_PX}px repeat-y;
               }
               @keyframes more-left { 0% { opacity: 0; } 1%, 100% { opacity: 1; } }

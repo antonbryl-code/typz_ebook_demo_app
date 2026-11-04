@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The cover of books that don't name their own: a 1:1.5 page with a blue border and the letters
+<!-- The cover of books that don't name their own: a 1:1.414 page with a blue border and the letters
      of the app icon. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="200dp"
-    android:height="300dp"
+    android:height="282.8dp"
     android:viewportWidth="200"
-    android:viewportHeight="300">
+    android:viewportHeight="282.8">
     <!-- Page -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M0,0H200V300H0Z" />
+        android:pathData="M0,0H200V282.8H0Z" />
     <!-- Border -->
     <path
         android:fillColor="#1E3A5F"
         android:fillType="evenOdd"
-        android:pathData="M0,0H200V300H0ZM8,8V292H192V8Z" />
+        android:pathData="M0,0H200V282.8H0ZM8,8V274.8H192V8Z" />
     <!-- T -->
     <path
         android:fillColor="#1E3A5F"
-        android:pathData="M30,107.5H90V122.5H67.5V192.5H52.5V122.5H30Z" />
+        android:pathData="M30,98.9H90V113.9H67.5V183.9H52.5V113.9H30Z" />
     <!-- Y -->
     <path
         android:fillColor="#1E3A5F"
-        android:pathData="M100,107.5H117.5L135,135L152.5,107.5H170L142.5,150V192.5H127.5V150Z" />
+        android:pathData="M100,98.9H117.5L135,126.4L152.5,98.9H170L142.5,141.4V183.9H127.5V141.4Z" />
 </vector>
