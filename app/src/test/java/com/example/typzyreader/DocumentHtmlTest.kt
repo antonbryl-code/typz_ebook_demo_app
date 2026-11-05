@@ -63,6 +63,36 @@ class DocumentHtmlTest {
         assertEquals(60f, top, 0.01f)
     }
 
+    // Sections starting 100, 600 and 1100 CSS px down, in an 800 px view with a 64 px toolbar.
+    private val tops = listOf(100f, 600f, 1100f)
+    private fun current(scrollTop: Float, atEnd: Boolean = false) =
+        DocumentHtml.currentSection(tops, scrollTop, 800f, 64f, atEnd)
+
+    @Test
+    fun takesTheLastSectionThatReachedTheToolbar() {
+        assertEquals(0, current(100f))
+        assertEquals(0, current(400f))
+        assertEquals(1, current(592f)) // where jumping to it puts it: 8 px below the toolbar
+        assertEquals(1, current(1000f))
+        assertEquals(2, current(1100f))
+    }
+
+    @Test
+    fun takesTheFirstSectionWhileItIsStillBelow() {
+        // At the start, with a title above the first section.
+        assertEquals(0, current(0f))
+        assertEquals(null, DocumentHtml.currentSection(listOf(2000f), 0f, 800f, 64f, atEnd = false))
+        assertEquals(null, DocumentHtml.currentSection(emptyList(), 0f, 800f, 64f, atEnd = false))
+    }
+
+    @Test
+    fun takesTheLastVisibleSectionAtTheEnd() {
+        // A short last section that can't scroll up to the toolbar.
+        assertEquals(2, current(700f, atEnd = true))
+        // At the end, but the last section starts below the screen: the usual rule.
+        assertEquals(1, DocumentHtml.currentSection(listOf(100f, 600f, 5000f), 700f, 800f, 64f, atEnd = true))
+    }
+
     @Test
     fun putsEachPageInARowThatScrollsSideways() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), ""), dark = false)

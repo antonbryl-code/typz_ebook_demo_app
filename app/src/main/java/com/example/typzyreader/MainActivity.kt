@@ -14,11 +14,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animate
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -47,6 +45,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -121,6 +121,9 @@ private const val BAR_SNAP_DELAY_MS = 150L
 private val COVER_HEIGHT = 240.dp
 private val COVER_MAX_WIDTH = 312.dp
 
+/** Where the panel's text starts, lined up with the labels of its section items. */
+private val PANEL_TEXT_INSET = 28.dp
+
 /** What the document area shows. */
 private sealed interface ViewerContent {
     data class Message(val text: String) : ViewerContent
@@ -151,6 +154,8 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val sectionJumps = remember { MutableSharedFlow<TypstSection>(extraBufferCapacity = 1) }
+    // The index of the section being read, as the document view reports it.
+    var currentSection by remember { mutableStateOf<Int?>(null) }
     var fileName by remember { mutableStateOf<String?>(null) }
     var bundle by remember { mutableStateOf<TypstBundle?>(null) }
     var viewWidthPx by remember { mutableStateOf<Int?>(null) }
@@ -269,6 +274,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                     cover = cover,
                     title = documentTitle.orEmpty(),
                     sections = (content as? ViewerContent.Document)?.document?.sections.orEmpty(),
+                    currentSection = currentSection,
                     onSectionClick = { section ->
                         barState.heightOffset = 0f // the section lands just below the toolbar
                         sectionJumps.tryEmit(section)
@@ -306,6 +312,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                             layout = shown.layout,
                             topPadding = TopAppBarDefaults.TopAppBarExpandedHeight,
                             sectionJumps = sectionJumps,
+                            onCurrentSectionChange = { currentSection = it },
                             onScroll = { dy ->
                                 barState.heightOffset -= dy // kept within the bar's height
                                 documentScrolls++
@@ -447,6 +454,7 @@ private fun BookPanel(
     cover: ImageBitmap?,
     title: String,
     sections: List<TypstSection>,
+    currentSection: Int?,
     onSectionClick: (TypstSection) -> Unit,
 ) {
     ModalDrawerSheet {
@@ -454,7 +462,7 @@ private fun BookPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(vertical = 24.dp),
         ) {
             val coverModifier = Modifier
                 .align(Alignment.CenterHorizontally)
@@ -465,19 +473,19 @@ private fun BookPanel(
                 Image(painterResource(R.drawable.default_cover), contentDescription = "Book cover", modifier = coverModifier)
             }
             Spacer(Modifier.height(24.dp))
-            Text(text = title.uppercase(), style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = title.uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = PANEL_TEXT_INSET),
+            )
             Spacer(Modifier.height(16.dp))
-            for (section in sections) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { onSectionClick(section) }
-                        .padding(vertical = 8.dp)
-                ) {
-                    Text("•")
-                    Spacer(Modifier.width(8.dp))
-                    Text(section.name)
-                }
+            sections.forEachIndexed { i, section ->
+                NavigationDrawerItem(
+                    label = { Text(section.name) },
+                    selected = i == currentSection,
+                    onClick = { onSectionClick(section) },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+                )
             }
         }
     }

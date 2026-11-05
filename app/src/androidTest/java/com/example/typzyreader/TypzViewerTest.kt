@@ -13,6 +13,9 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -153,6 +156,34 @@ class TypzViewerTest {
         compose.onNodeWithText("Chapter Two").assertIsDisplayed().performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Chapter Two").assertIsNotDisplayed()
+    }
+
+    @Test
+    fun highlightsTheSectionBeingRead() {
+        val mainTyp = """
+            #let width = sys.inputs.at("ebook-width", default: none)
+            #set page(width: eval(width), height: auto) if width != none
+            = Chapter One
+            #lorem(600)
+            = Chapter Two
+            #lorem(600)
+        """.trimIndent()
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp))
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("1 page laid out")
+        compose.onNodeWithContentDescription("Book contents").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodes(hasText("Chapter One") and isSelected()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Chapter Two").assertIsNotSelected().performClick()
+
+        compose.onNodeWithContentDescription("Book contents").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodes(hasText("Chapter Two") and isSelected()).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Chapter One").assertIsNotSelected()
     }
 
     @Test

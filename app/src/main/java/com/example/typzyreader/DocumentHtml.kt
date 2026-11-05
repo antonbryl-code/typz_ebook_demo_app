@@ -154,6 +154,41 @@ object DocumentHtml {
         return pagesAbove.toFloat() + section.yPt * cssPxPerPt(page)
     }
 
+    /**
+     * The index of the section being read, given where the sections start ([sectionTops], from
+     * [sectionTopPx]) and what's on screen, all in CSS px: [scrollTopCssPx] scrolled down, in a
+     * view [viewportHeightCssPx] tall whose top [topPaddingCssPx] are covered by the toolbar.
+     *
+     * It's the last section whose heading has reached the top of the visible area, where jumping
+     * to a section puts it. Near the start, before any has, it's the first section if that's on
+     * screen; at the [atEnd] of the document, the last one on screen, since a section too close to
+     * the end can't scroll up that far. Null if there are no sections, or none of these applies.
+     */
+    fun currentSection(
+        sectionTops: List<Float>,
+        scrollTopCssPx: Float,
+        viewportHeightCssPx: Float,
+        topPaddingCssPx: Float,
+        atEnd: Boolean,
+    ): Int? {
+        // Where a section's top is on screen, measured from the bottom of the toolbar.
+        fun onScreen(top: Float) = top - scrollTopCssPx
+        val visibleHeight = viewportHeightCssPx - topPaddingCssPx
+        if (atEnd) {
+            val last = sectionTops.indexOfLast { onScreen(it) < visibleHeight }
+            if (last >= 0) return last
+        }
+        val reached = sectionTops.indexOfLast { onScreen(it) <= READING_LINE_PX }
+        if (reached >= 0) return reached
+        return sectionTops.firstOrNull()?.takeIf { onScreen(it) < visibleHeight }?.let { 0 }
+    }
+
+    /**
+     * How far below the toolbar a section's top can be and still count as reached, in CSS px:
+     * more than the gap a jump leaves above it (see DocumentView), less than a line of text.
+     */
+    private const val READING_LINE_PX = 16f
+
     /** A document that reflowed has a page exactly as wide as the view. */
     private fun reflowed(document: TypstDocument, viewWidthPt: Float?) =
         document.pages.any { matches(it, viewWidthPt) }

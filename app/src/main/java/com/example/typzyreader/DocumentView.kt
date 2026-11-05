@@ -28,7 +28,8 @@ import kotlin.math.roundToInt
  * [layout] is what the document was compiled for, [topPadding] leaves room above the document
  * for a toolbar laid over the view, and [onScroll] gets each vertical scroll step in pixels
  * (positive when scrolling down). Each section from [sectionJumps] is scrolled to, leaving it just
- * below that toolbar.
+ * below that toolbar, and [onCurrentSectionChange] gets the index in [TypstDocument.sections] of
+ * the one being read (see [DocumentHtml.currentSection]) whenever the view settles on content.
  */
 @Composable
 fun DocumentView(
@@ -38,6 +39,7 @@ fun DocumentView(
     topPadding: Dp = 0.dp,
     onScroll: (Int) -> Unit = {},
     sectionJumps: Flow<TypstSection> = emptyFlow(),
+    onCurrentSectionChange: (Int?) -> Unit = {},
 ) {
     val dark = isSystemInDarkTheme()
     // With the device-width viewport, 1 CSS px = 1 dp.
@@ -55,9 +57,18 @@ fun DocumentView(
     }
     AndroidView(
         factory = { context -> DocumentWebView(context).also { webView = it } },
-        update = {
-            it.onScroll = onScroll
-            it.show(html)
+        update = { view ->
+            view.onScroll = onScroll
+            view.onPositionChange = { scrollTopCssPx, viewportHeightCssPx, atEnd ->
+                val viewWidthCssPx = view.width / view.resources.displayMetrics.density
+                val tops = document.sections.map { section ->
+                    DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx)
+                }
+                onCurrentSectionChange(
+                    DocumentHtml.currentSection(tops, scrollTopCssPx, viewportHeightCssPx, topPadding.value, atEnd)
+                )
+            }
+            view.show(html)
         },
         onRelease = { it.destroy() },
         modifier = modifier,
@@ -76,6 +87,12 @@ private const val SECTION_GAP_PX = 8f
 private class DocumentWebView(context: Context) : WebView(context) {
     private var shownHtml: String? = null
     var onScroll: (Int) -> Unit = {}
+
+    /**
+     * Gets what's on screen after each scroll and once new content is shown: how far down it's
+     * scrolled and how tall the view is, both in CSS px at no zoom, and whether it's at the end.
+     */
+    var onPositionChange: (scrollTopCssPx: Float, viewportHeightCssPx: Float, atEnd: Boolean) -> Unit = { _, _, _ -> }
 
     /** Where [show] or [jumpTo] scrolls to; that scroll isn't reported to [onScroll]. */
     private var restoringTo: Int? = null
@@ -107,8 +124,17 @@ private class DocumentWebView(context: Context) : WebView(context) {
                 val y = (fraction * contentHeight * resources.displayMetrics.density).toInt()
                 if (y != scrollY) restoringTo = y
                 scrollTo(0, y)
+                reportPosition() // also if that didn't scroll
             }
         })
+    }
+
+    private fun reportPosition() {
+        if (contentHeight == 0) return
+        // Allows for pinch zoom, which changes the pixels per CSS px.
+        val pxPerCssPx = computeVerticalScrollRange().toFloat() / contentHeight
+        val maxY = computeVerticalScrollRange() - computeVerticalScrollExtent()
+        onPositionChange(scrollY / pxPerCssPx, height / pxPerCssPx, maxY > 0 && scrollY >= maxY - 1)
     }
 
     /** Scrolls to [cssPxBelowTop] CSS px from the top of the page, as far as the document allows. */
@@ -129,6 +155,7 @@ private class DocumentWebView(context: Context) : WebView(context) {
         } else if (t != oldt) {
             onScroll(t - oldt)
         }
+        reportPosition()
     }
 
     private class LinkOpeningClient : WebViewClient() {
