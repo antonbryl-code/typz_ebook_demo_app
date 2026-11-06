@@ -5,6 +5,8 @@
 //! them) and lay themselves out pageless; documents that ignore them render as authored:
 //! - `ebook-width`: the width of the view, e.g. `"300pt"`
 //! - `ebook-margin`: the margin the viewer suggests on every side, e.g. `"12pt"`
+//! - `ebook-height`: for documents in the `book` format only, the height of a page, e.g.
+//!   `"420pt"`; their pages are then `ebook-width` by `ebook-height`
 //!
 //! For example:
 //! ```typ
@@ -30,6 +32,8 @@ use typst::{Library, LibraryExt};
 pub struct ViewerGeometry {
     pub width: f32,
     pub margin: f32,
+    /// The page height, for books; pageless documents don't get one.
+    pub height: Option<f32>,
 }
 
 /// The standard library with `sys.inputs` describing `geometry`.
@@ -37,6 +41,9 @@ pub fn library(geometry: ViewerGeometry) -> Library {
     let mut inputs = Dict::new();
     inputs.insert("ebook-width".into(), length(geometry.width));
     inputs.insert("ebook-margin".into(), length(geometry.margin));
+    if let Some(height) = geometry.height {
+        inputs.insert("ebook-height".into(), length(height));
+    }
     Library::builder().with_inputs(inputs).build()
 }
 

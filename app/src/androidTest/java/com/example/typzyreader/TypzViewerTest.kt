@@ -3,6 +3,7 @@ package com.example.typzyreader
 import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +16,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isNotDisplayed
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -108,8 +110,28 @@ class TypzViewerTest {
     }
 
     @Test
-    fun refusesBookFormat() {
-        assertRefused("book", "The \"book\" format is not implemented yet.")
+    fun opensBooksWithPagesSizedForTheView() {
+        val mainTyp = """
+            #set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")))
+            = One
+            #pagebreak()
+            = Two
+        """.trimIndent()
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, manifestExtra = "[tool.typzy-reader]\nformat = \"book\"\n"))
+        compose.setContent {
+            // Taller than 1.25 times its width: one page at a time, as large as the view.
+            Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("2 pages laid out")
+        compose.onNodeWithText("Can't open this file").assertDoesNotExist()
+        // The toolbar starts hidden, so it doesn't cover the first page.
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isNotDisplayed() }
+
+        // A page as wide as the view (system bars may take some of its height, so that's not checked).
+        val metrics = context.resources.displayMetrics
+        val dpi = ViewGeometry.physicalDpi(metrics.xdpi, metrics.densityDpi)
+        val widthPt = 400 * ViewGeometry.ptPerCssPx(metrics.density, dpi, ReaderSettings.DEFAULT_TEXT_SIZE / 100f)
+        waitForDocument(": %.0f × ".format(widthPt))
     }
 
     @Test

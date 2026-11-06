@@ -249,7 +249,8 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_bundleFileSize<'
     })
 }
 
-/// Compiles the bundle, offering the view's width and a margin (in points) through `sys.inputs`,
+/// Compiles the bundle, offering the view's width, a margin and, unless 0, a page height (in
+/// points) through `sys.inputs`,
 /// and renders it to one SVG per page. Returns `[sizes, svgs, textLayers, warnings, missing,
 /// title, sections, sectionPositions]`: a `float[]` of `width0, height0, width1, height1, ..` in points, a `String[]` of page
 /// SVGs, a `String[]` of the pages' HTML text layers, and the formatted warnings (empty if none);
@@ -265,12 +266,18 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_compile<'local>(
     handle: jlong,
     width_pt: jfloat,
     margin_pt: jfloat,
+    height_pt: jfloat,
 ) -> jobjectArray {
     guard(&mut env, std::ptr::null_mut(), |env| {
         if !(width_pt.is_finite() && width_pt > 0.0 && margin_pt.is_finite() && margin_pt >= 0.0) {
             return Err(Error::new(ILLEGAL_ARGUMENT, format!("Bad page geometry: width {width_pt}, margin {margin_pt}")));
         }
-        let geometry = ViewerGeometry { width: width_pt, margin: margin_pt };
+        // 0 means none: pageless documents aren't offered a height.
+        if !(height_pt.is_finite() && height_pt >= 0.0) {
+            return Err(Error::new(ILLEGAL_ARGUMENT, format!("Bad page height: {height_pt}")));
+        }
+        let height = (height_pt > 0.0).then_some(height_pt);
+        let geometry = ViewerGeometry { width: width_pt, margin: margin_pt, height };
         let rendered = match bundle_mut(handle)?.compile(geometry) {
             Ok(rendered) => rendered,
             Err(CompileFailure::Errors(message)) => return Err(Error::new(COMPILE_EXCEPTION, message)),

@@ -94,6 +94,58 @@ class DocumentHtmlTest {
     }
 
     @Test
+    fun startsSpreadsWithTheFirstPageAloneOnTheRight() {
+        assertEquals(listOf(listOf(null, 0), listOf(1, 2), listOf(3, null)), DocumentHtml.screens(4, PageMode.SPREAD))
+        assertEquals(listOf(listOf(null, 0), listOf(1, 2)), DocumentHtml.screens(3, PageMode.SPREAD))
+        assertEquals(listOf(listOf(null, 0)), DocumentHtml.screens(1, PageMode.SPREAD))
+        assertEquals(emptyList<List<Int?>>(), DocumentHtml.screens(0, PageMode.SPREAD))
+        assertEquals(listOf(listOf(0), listOf(1)), DocumentHtml.screens(2, PageMode.SINGLE))
+    }
+
+    @Test
+    fun findsTheScreenOfEachPage() {
+        assertEquals(listOf(0, 1, 1, 2, 2), (0..4).map { DocumentHtml.screenOfPage(it, PageMode.SPREAD) })
+        assertEquals(listOf(0, 1, 2), (0..2).map { DocumentHtml.screenOfPage(it, PageMode.SINGLE) })
+    }
+
+    @Test
+    fun takesTheLastSectionStartedOnOrBeforeTheScreen() {
+        val sections = listOf(TypstSection("A", 1, 0f), TypstSection("B", 2, 300f), TypstSection("C", 5, 0f))
+        assertEquals(null, DocumentHtml.currentSectionOnScreen(sections, 0, PageMode.SINGLE))
+        assertEquals(0, DocumentHtml.currentSectionOnScreen(sections, 1, PageMode.SINGLE))
+        assertEquals(1, DocumentHtml.currentSectionOnScreen(sections, 4, PageMode.SINGLE))
+        // The second spread shows pages 1 and 2.
+        assertEquals(1, DocumentHtml.currentSectionOnScreen(sections, 1, PageMode.SPREAD))
+        assertEquals(2, DocumentHtml.currentSectionOnScreen(sections, 3, PageMode.SPREAD))
+    }
+
+    @Test
+    fun laysSwipedPagesSideBySideAScreenAtATime() {
+        val document = TypstDocument(listOf(page(300f, 600f, "a"), page(300f, 600f, "b"), page(300f, 600f, "c")), "")
+        val html = DocumentHtml.build(document, dark = false, mode = PageMode.SPREAD)
+        assertTrue(html, html.contains("html { overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; }"))
+        assertTrue(html, html.contains("scroll-snap-align: start; scroll-snap-stop: always;"))
+        assertTrue(html, html.contains("minimum-scale=1"))
+        assertEquals(2, Regex("<div class=\"spread\">").findAll(html).count())
+        // The first spread has a blank slot on the left, then page a.
+        assertTrue(html, html.contains("<div class=\"spread\"><div class=\"slot\"></div><div class=\"slot\"><div class=\"page\""))
+        assertTrue(html.indexOf("id=\"a\"") < html.indexOf("id=\"b\"") && html.indexOf("id=\"b\"") < html.indexOf("id=\"c\""))
+        // Pages as large as fits their slot.
+        assertTrue(html, html.contains("width: min(100%, calc(100vh * 300.000 / 600.000)); aspect-ratio: 300.000 / 600.000"))
+    }
+
+    @Test
+    fun scrollsBookPagesWithGapsBetweenThem() {
+        val document = TypstDocument(listOf(page(300f, 424f, "a"), page(300f, 424f, "b")), "")
+        val html = DocumentHtml.build(document, dark = false, viewWidthPt = 300f, mode = PageMode.SCROLLED)
+        assertTrue(html, html.contains(".row { margin-bottom: 12px; } .row:last-child { margin-bottom: 0; }"))
+        assertTrue(html, html.contains("width: min(100%, 400.000px)"))
+        // Sections below the first page are lower by the gap above them.
+        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f, PageMode.SCROLLED)
+        assertEquals(424f * 4 / 3 + 12f + 40f, top, 0.01f)
+    }
+
+    @Test
     fun putsEachPageInARowThatScrollsSideways() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), ""), dark = false)
         assertEquals(2, Regex("<div class=\"row\"><div class=\"scroller\"><div class=\"page\"").findAll(html).count())

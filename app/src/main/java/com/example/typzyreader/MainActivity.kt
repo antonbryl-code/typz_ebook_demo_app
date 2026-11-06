@@ -64,6 +64,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
@@ -77,13 +78,16 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.typzyreader.ui.theme.TypzyReaderTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -132,13 +136,17 @@ private sealed interface ViewerContent {
     data object Loading : ViewerContent
 
     /** [document] as compiled for [layout]. */
-    data class Document(val document: TypstDocument, val layout: ViewLayout) : ViewerContent
+    data class Document(val document: TypstDocument, val layout: ViewLayout) : ViewerContent {
+        /** Whether it's a book, with pages laid out for the view. */
+        val book: Boolean get() = layout.mode != PageMode.PAGELESS
+    }
 }
 
 /**
  * With no file open, a prompt to open one. Otherwise the document (or why it can't be shown),
- * under a toolbar with its title (or file name) and a menu; the toolbar slides away while
- * scrolling down the document and comes back when scrolling up.
+ * under a toolbar with its title (or file name) and a menu. In pageless documents the toolbar
+ * slides away while scrolling down and comes back when scrolling up; in books, which use the
+ * whole view, it starts hidden, a tap shows or hides it, and turning or scrolling the pages hides it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -149,6 +157,8 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     var uri by rememberSaveable { mutableStateOf<Uri?>(null) }
     // A file asked to be opened, until its format is checked; a refused one leaves [uri] alone.
     var requestedUri by rememberSaveable { mutableStateOf(initialUri) }
+    // The format of the document at [uri], as its manifest names it.
+    var format by rememberSaveable { mutableStateOf(TypzFormat.PAGELESS) }
     var refusal by remember { mutableStateOf<String?>(null) }
     var cover by remember { mutableStateOf<ImageBitmap?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -158,13 +168,19 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     var currentSection by remember { mutableStateOf<Int?>(null) }
     var fileName by remember { mutableStateOf<String?>(null) }
     var bundle by remember { mutableStateOf<TypstBundle?>(null) }
-    var viewWidthPx by remember { mutableStateOf<Int?>(null) }
+    var viewSize by remember { mutableStateOf<IntSize?>(null) }
     val settings = remember { ReaderSettings(context) }
     var textSizePercent by remember { mutableIntStateOf(settings.textSizePercent) }
-    val layout = viewWidthPx?.let { widthPx ->
+    val layout = viewSize?.let { size ->
         val metrics = context.resources.displayMetrics
         val dpi = ViewGeometry.physicalDpi(metrics.xdpi, metrics.densityDpi)
-        ViewGeometry.layout(widthPx, density, dpi, textSizePercent / 100f)
+        val scale = textSizePercent / 100f
+        if (format == TypzFormat.BOOK) {
+            val verticalDpi = ViewGeometry.physicalDpi(metrics.ydpi, metrics.densityDpi)
+            ViewGeometry.bookLayout(size.width, size.height, density, dpi, verticalDpi, scale)
+        } else {
+            ViewGeometry.layout(size.width, density, dpi, scale)
+        }
     }
     var content by remember { mutableStateOf<ViewerContent>(ViewerContent.Loading) }
     var recompiling by remember { mutableStateOf(false) }
@@ -174,6 +190,17 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     val barState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(barState)
     var documentScrolls by remember { mutableIntStateOf(0) }
+    val barAnimation = remember { mutableStateOf<Job?>(null) }
+    // Slides the toolbar fully in or out, as books do on taps and page turns.
+    val showBar = { shown: Boolean ->
+        val target = if (shown) 0f else barState.heightOffsetLimit
+        if (barState.heightOffset != target) {
+            barAnimation.value?.cancel()
+            barAnimation.value = scope.launch {
+                animate(barState.heightOffset, target) { value, _ -> barState.heightOffset = value }
+            }
+        }
+    }
 
     val openDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -187,8 +214,14 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
 
     LaunchedEffect(requestedUri) {
         val requested = requestedUri ?: return@LaunchedEffect
-        val problem = withContext(Dispatchers.IO) { formatProblem(context, requested) }
-        if (problem == null) uri = requested else refusal = problem
+        val named = withContext(Dispatchers.IO) { formatOf(context, requested) }
+        val known = TypzFormat.of(named)
+        if (known != null) {
+            format = known
+            uri = requested
+        } else {
+            refusal = TypzArchive.formatProblem(named)
+        }
         requestedUri = null
     }
 
@@ -244,6 +277,14 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     LaunchedEffect(showingDocument) {
         if (!showingDocument) barState.heightOffset = 0f
     }
+    // A book opens with the toolbar hidden, so it doesn't cover the first page; a tap shows it.
+    // Once per document: recompiling it (e.g. on rotation) leaves the toolbar as it was.
+    val showingBook = (content as? ViewerContent.Document)?.book == true
+    LaunchedEffect(uri, showingBook) {
+        if (!showingBook) return@LaunchedEffect
+        // The limit is unknown until the toolbar has been measured.
+        barState.heightOffset = snapshotFlow { barState.heightOffsetLimit }.first { it > -Float.MAX_VALUE }
+    }
     // The WebView doesn't take part in Compose's nested scrolling, so the toolbar follows its
     // scroll steps directly (see DocumentView), and snaps once they stop instead of on fling end.
     LaunchedEffect(documentScrolls) {
@@ -276,7 +317,9 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                     sections = (content as? ViewerContent.Document)?.document?.sections.orEmpty(),
                     currentSection = currentSection,
                     onSectionClick = { section ->
-                        barState.heightOffset = 0f // the section lands just below the toolbar
+                        val book = (content as? ViewerContent.Document)?.layout?.mode != PageMode.PAGELESS
+                        // In pageless documents, the section lands just below the toolbar.
+                        if (book) showBar(false) else barState.heightOffset = 0f
                         sectionJumps.tryEmit(section)
                         scope.launch { drawerState.close() }
                     },
@@ -284,13 +327,13 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
             },
         ) {
             Box(Modifier.fillMaxSize()) {
-                // The document area, under the toolbar; its width is what documents are offered
+                // The document area, under the toolbar; its size is what documents are offered
                 // to lay out at.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.safeDrawing)
-                        .onSizeChanged { viewWidthPx = it.width }
+                        .onSizeChanged { viewSize = it }
                 ) {
                     when (val shown = content) {
                         is ViewerContent.Message -> Text(
@@ -310,13 +353,22 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                         is ViewerContent.Document -> DocumentView(
                             document = shown.document,
                             layout = shown.layout,
-                            topPadding = TopAppBarDefaults.TopAppBarExpandedHeight,
+                            // Books use the whole view; their toolbar shows over the pages on a tap.
+                            topPadding = if (shown.book) 0.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
                             sectionJumps = sectionJumps,
                             onCurrentSectionChange = { currentSection = it },
                             onScroll = { dy ->
-                                barState.heightOffset -= dy // kept within the bar's height
-                                documentScrolls++
+                                if (shown.book) {
+                                    showBar(false)
+                                } else {
+                                    barState.heightOffset -= dy // kept within the bar's height
+                                    documentScrolls++
+                                }
                             },
+                            onTap = {
+                                if (shown.book) showBar(barState.heightOffset < barState.heightOffsetLimit / 2)
+                            },
+                            onPageTurn = { if (shown.book) showBar(false) },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .semantics {
@@ -548,11 +600,12 @@ private fun describe(shown: ViewerContent.Document): String {
         pages.joinToString { "%.0f × %.0f pt".format(it.widthPt, it.heightPt) }
 }
 
-/** Why the file at [uri] must not be opened, because of its format; null lets opening it proceed. */
-private fun formatProblem(context: Context, uri: Uri): String? = try {
-    context.contentResolver.openInputStream(uri)?.use { TypzArchive.formatProblem(it) }
+/** The format named by the manifest of the file at [uri] (see [TypzArchive.format]). */
+private fun formatOf(context: Context, uri: Uri): String = try {
+    context.contentResolver.openInputStream(uri)?.use { TypzArchive.format(it) } ?: TypzFormat.PAGELESS.value
 } catch (_: Exception) {
-    null // e.g. not a zip or a malformed manifest: opening it reports that, in place of the document
+    // E.g. not a zip or a malformed manifest: opening it reports that, in place of the document.
+    TypzFormat.PAGELESS.value
 }
 
 private fun openBundle(context: Context, uri: Uri): TypstBundle {
@@ -564,7 +617,10 @@ private fun openBundle(context: Context, uri: Uri): TypstBundle {
 }
 
 private fun compile(bundle: TypstBundle, layout: ViewLayout): ViewerContent = try {
-    ViewerContent.Document(bundle.compile(layout.widthPt, ViewGeometry.MARGIN_PT, TypstUniverse), layout)
+    ViewerContent.Document(
+        bundle.compile(layout.widthPt, ViewGeometry.MARGIN_PT, layout.heightPt, TypstUniverse),
+        layout,
+    )
 } catch (e: TypstCompileException) {
     ViewerContent.Message("Typst errors:\n${e.message}")
 } catch (e: Exception) {

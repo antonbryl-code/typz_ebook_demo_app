@@ -90,6 +90,11 @@ class TypstBundleTest {
             #assert.eq(sys.inputs.at("ebook-margin"), "12pt")
         """.trimIndent()
         open("main.typ" to text).use { it.compile(300.5f, MARGIN) }
+        // Pageless documents aren't offered a height; books are.
+        open("main.typ" to "#assert.eq(sys.inputs.at(\"ebook-height\", default: none), none)").use { it.compile(300f, MARGIN) }
+        open("main.typ" to "#assert.eq(sys.inputs.at(\"ebook-height\"), \"420.5pt\")").use {
+            it.compile(300f, MARGIN, heightPt = 420.5f)
+        }
     }
 
     @Test

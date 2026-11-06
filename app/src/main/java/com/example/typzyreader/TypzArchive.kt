@@ -7,6 +7,20 @@ import java.util.zip.ZipInputStream
 
 class TypzFormatException(message: String) : IOException(message)
 
+/** The formats a .typz can name in its manifest's `format`, and how they're laid out. */
+enum class TypzFormat(val value: String) {
+    /** Reflowed to the view's width, without page breaks of its own (see [PageMode.PAGELESS]). */
+    PAGELESS("pageless"),
+
+    /** Pages sized for the view, laid out one of three ways (see [ViewGeometry.bookLayout]). */
+    BOOK("book");
+
+    companion object {
+        /** The format a manifest's `format` value names, null if it's none of them. */
+        fun of(value: String): TypzFormat? = entries.find { it.value == value }
+    }
+}
+
 /**
  * Every file of a .typz keyed by its path inside the zip, plus the entrypoint to compile and the
  * path of the cover image, if the manifest names one.
@@ -43,20 +57,17 @@ object TypzArchive {
     }
 
     /**
-     * Why the .typz can't be opened because of its format, null if that isn't the problem. A
-     * .typz without a manifest passes here; [read] reports that.
+     * The format the .typz's manifest names, as written there (see [TypzFormat.of]); "pageless"
+     * if it names none, or if there's no manifest, which [read] reports.
      */
-    fun formatProblem(input: InputStream, maxTotalSize: Long = MAX_TOTAL_SIZE): String? {
-        val manifest = readManifest(input, maxTotalSize) ?: return null
-        return formatProblem(TypstNative.manifestFormat(manifest))
+    fun format(input: InputStream, maxTotalSize: Long = MAX_TOTAL_SIZE): String {
+        val manifest = readManifest(input, maxTotalSize) ?: return TypzFormat.PAGELESS.value
+        return TypstNative.manifestFormat(manifest)
     }
 
     /** Why a document in [format] can't be opened, null if it can. */
-    internal fun formatProblem(format: String): String? = when (format) {
-        "pageless" -> null
-        "book" -> "The \"book\" format is not implemented yet."
-        else -> "\"$format\" is an unknown value for the \"format\" parameter."
-    }
+    fun formatProblem(format: String): String? =
+        if (TypzFormat.of(format) != null) null else "\"$format\" is an unknown value for the \"format\" parameter."
 
     /** The manifest's bytes, read without keeping the other entries; null if there is none. */
     private fun readManifest(input: InputStream, maxTotalSize: Long): ByteArray? {

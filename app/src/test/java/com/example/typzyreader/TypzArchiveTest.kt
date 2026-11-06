@@ -46,17 +46,20 @@ class TypzArchiveTest {
     }
 
     @Test
-    fun acceptsOnlyThePagelessFormat() {
+    fun acceptsThePagelessAndBookFormats() {
+        assertEquals(TypzFormat.PAGELESS, TypzFormat.of("pageless"))
+        assertEquals(TypzFormat.BOOK, TypzFormat.of("book"))
         assertNull(TypzArchive.formatProblem("pageless"))
-        assertEquals("The \"book\" format is not implemented yet.", TypzArchive.formatProblem("book"))
+        assertNull(TypzArchive.formatProblem("book"))
+        assertNull(TypzFormat.of("Book"))
         assertEquals("\"Book\" is an unknown value for the \"format\" parameter.", TypzArchive.formatProblem("Book"))
         assertEquals("\"\" is an unknown value for the \"format\" parameter.", TypzArchive.formatProblem(""))
     }
 
     @Test
-    fun hasNoFormatProblemWithoutManifest() {
+    fun isPagelessWithoutManifest() {
         // Opening the file reports the missing manifest.
-        assertNull(TypzArchive.formatProblem(zip("main.typ" to "= Hello")))
+        assertEquals("pageless", TypzArchive.format(zip("main.typ" to "= Hello")))
     }
 
     @Test(expected = TypzFormatException::class)

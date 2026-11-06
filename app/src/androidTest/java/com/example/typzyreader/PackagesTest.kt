@@ -81,7 +81,7 @@ class PackagesTest {
     fun downloadsMissingPackagesOnceAndCachesThem() {
         val fetched = mutableListOf<String>()
         val fetcher = PackageFetcher { spec -> fetched += spec; tarGz(greetPackage()) }
-        assertEquals("HELLO WORLD", text(open(main).use { it.compile(300f, 12f, fetcher) }))
+        assertEquals("HELLO WORLD", text(open(main).use { it.compile(300f, 12f, fetcher = fetcher) }))
         assertEquals(listOf("@preview/greet:0.1.0"), fetched)
 
         // Another bundle finds it in the cache, without any fetcher.
@@ -105,7 +105,7 @@ class PackagesTest {
             }
         }
         val document = open("main.typ" to "#import \"@preview/greet:0.1.0\": hello\n#hello(\"World\")").use {
-            it.compile(300f, 12f, fetcher)
+            it.compile(300f, 12f, fetcher = fetcher)
         }
         assertEquals("HELLO WORLD", text(document))
         assertEquals(listOf("@preview/greet:0.1.0", "@preview/punct:0.1.0"), fetched)

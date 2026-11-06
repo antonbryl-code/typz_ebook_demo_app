@@ -5,6 +5,9 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.view.GestureDetector
+import android.view.MotionEvent
+import android.view.ViewGroup
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -28,8 +31,10 @@ import kotlin.math.roundToInt
  * [layout] is what the document was compiled for, [topPadding] leaves room above the document
  * for a toolbar laid over the view, and [onScroll] gets each vertical scroll step in pixels
  * (positive when scrolling down). Each section from [sectionJumps] is scrolled to, leaving it just
- * below that toolbar, and [onCurrentSectionChange] gets the index in [TypstDocument.sections] of
- * the one being read (see [DocumentHtml.currentSection]) whenever the view settles on content.
+ * below that toolbar (or turned to, in the swiped [PageMode]s), and [onCurrentSectionChange] gets
+ * the index in [TypstDocument.sections] of the one being read (see [DocumentHtml.currentSection])
+ * whenever the view settles on content. [onTap] gets taps that aren't part of a scroll or a long
+ * press, and [onPageTurn] each step of a sideways scroll in the swiped modes.
  */
 @Composable
 fun DocumentView(
@@ -40,33 +45,53 @@ fun DocumentView(
     onScroll: (Int) -> Unit = {},
     sectionJumps: Flow<TypstSection> = emptyFlow(),
     onCurrentSectionChange: (Int?) -> Unit = {},
+    onTap: () -> Unit = {},
+    onPageTurn: () -> Unit = {},
 ) {
     val dark = isSystemInDarkTheme()
     // With the device-width viewport, 1 CSS px = 1 dp.
     val html = remember(document, layout, dark, topPadding) {
-        DocumentHtml.build(document, dark, topPadding.value.roundToInt(), layout.widthPt, layout.ptPerCssPx)
+        DocumentHtml.build(document, dark, topPadding.value.roundToInt(), layout.widthPt, layout.ptPerCssPx, layout.mode)
     }
     var webView by remember { mutableStateOf<DocumentWebView?>(null) }
     LaunchedEffect(webView, document, layout, sectionJumps) {
         val view = webView ?: return@LaunchedEffect
         sectionJumps.collect { section ->
-            val viewWidthCssPx = view.width / view.resources.displayMetrics.density
-            val top = DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx)
-            view.jumpTo(top - SECTION_GAP_PX)
+            if (layout.mode.swiped) {
+                view.turnTo(DocumentHtml.screenOfPage(section.pageIndex, layout.mode))
+            } else {
+                val viewWidthCssPx = view.width / view.resources.displayMetrics.density
+                val top = DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode)
+                view.jumpTo(top - SECTION_GAP_PX)
+            }
         }
     }
     AndroidView(
-        factory = { context -> DocumentWebView(context).also { webView = it } },
+        factory = { context ->
+            DocumentWebView(context).also {
+                // With AndroidView's default wrap_content, the WebView lays out its content for a
+                // viewport 0 px tall, leaving books (whose pages are sized by its height) blank.
+                it.layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                webView = it
+            }
+        },
         update = { view ->
             view.onScroll = onScroll
-            view.onPositionChange = { scrollTopCssPx, viewportHeightCssPx, atEnd ->
-                val viewWidthCssPx = view.width / view.resources.displayMetrics.density
-                val tops = document.sections.map { section ->
-                    DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx)
+            view.onTap = onTap
+            view.onPageTurn = onPageTurn
+            view.onPositionChange = { position ->
+                val current = if (layout.mode.swiped) {
+                    DocumentHtml.currentSectionOnScreen(document.sections, position.screen, layout.mode)
+                } else {
+                    val viewWidthCssPx = view.width / view.resources.displayMetrics.density
+                    val tops = document.sections.map { section ->
+                        DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode)
+                    }
+                    DocumentHtml.currentSection(
+                        tops, position.scrollTopCssPx, position.viewportHeightCssPx, topPadding.value, position.atEnd,
+                    )
                 }
-                onCurrentSectionChange(
-                    DocumentHtml.currentSection(tops, scrollTopCssPx, viewportHeightCssPx, topPadding.value, atEnd)
-                )
+                onCurrentSectionChange(current)
             }
             view.show(html)
         },
@@ -79,23 +104,45 @@ fun DocumentView(
 private const val SECTION_GAP_PX = 8f
 
 /**
- * A WebView locked down for untrusted content: no JavaScript, file, content or network access,
- * and links open outside the app. Keeps the relative scroll position across documents, so a
- * recompile at a new width (e.g. on rotation) stays at about the same place.
+ * What a [DocumentWebView] shows: how far down it's scrolled and how tall it is, both in CSS px
+ * at no zoom, whether it's at the end, and which screen it's on when pages are swiped.
  */
-@SuppressLint("ViewConstructor")
+private class ViewPosition(
+    val scrollTopCssPx: Float,
+    val viewportHeightCssPx: Float,
+    val atEnd: Boolean,
+    val screen: Int,
+)
+
+/**
+ * A WebView locked down for untrusted content: no JavaScript, file, content or network access,
+ * and links open outside the app. Keeps the relative position across documents, so a recompile
+ * at a new size (e.g. on rotation) stays at about the same place, even when that switches between
+ * scrolling and swiping.
+ */
+@SuppressLint("ViewConstructor", "ClickableViewAccessibility")
 private class DocumentWebView(context: Context) : WebView(context) {
     private var shownHtml: String? = null
     var onScroll: (Int) -> Unit = {}
+    var onTap: () -> Unit = {}
+    var onPageTurn: () -> Unit = {}
+
+    /** Gets what's on screen after each scroll and once new content is shown. */
+    var onPositionChange: (ViewPosition) -> Unit = {}
 
     /**
-     * Gets what's on screen after each scroll and once new content is shown: how far down it's
-     * scrolled and how tall the view is, both in CSS px at no zoom, and whether it's at the end.
+     * Where [show], [jumpTo] or [turnTo] scrolls to; reaching it isn't reported to [onScroll] or
+     * [onPageTurn].
      */
-    var onPositionChange: (scrollTopCssPx: Float, viewportHeightCssPx: Float, atEnd: Boolean) -> Unit = { _, _, _ -> }
-
-    /** Where [show] or [jumpTo] scrolls to; that scroll isn't reported to [onScroll]. */
     private var restoringTo: Int? = null
+    private var restoringToX: Int? = null
+
+    private val taps = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            onTap()
+            return false
+        }
+    })
 
     init {
         settings.apply {
@@ -113,20 +160,39 @@ private class DocumentWebView(context: Context) : WebView(context) {
         webViewClient = LinkOpeningClient()
     }
 
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        taps.onTouchEvent(event) // only watches; the WebView still handles every event
+        return super.onTouchEvent(event)
+    }
+
     fun show(html: String) {
         if (html == shownHtml) return
-        val fraction = if (contentHeight > 0) scrollY / (contentHeight * resources.displayMetrics.density) else 0f
+        val progress = progress()
         shownHtml = html
         loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
-        // Fires once the new content is drawn, i.e. when its height is known.
+        // Fires once the new content is drawn, i.e. when its size is known.
         postVisualStateCallback(0, object : VisualStateCallback() {
             override fun onComplete(requestId: Long) {
-                val y = (fraction * contentHeight * resources.displayMetrics.density).toInt()
-                if (y != scrollY) restoringTo = y
-                scrollTo(0, y)
+                if (swiped()) {
+                    turnTo((progress * computeHorizontalScrollRange() / width).roundToInt())
+                } else {
+                    val y = (progress * computeVerticalScrollRange()).toInt()
+                    if (y != scrollY) restoringTo = y
+                    scrollTo(0, y)
+                }
                 reportPosition() // also if that didn't scroll
             }
         })
+    }
+
+    /** Whether the content scrolls sideways a screen at a time, i.e. pages are swiped. */
+    private fun swiped() = width > 0 && computeHorizontalScrollRange() > width
+
+    /** How far through the document the view is, from 0 to 1, along whichever way it scrolls. */
+    private fun progress(): Float = when {
+        swiped() -> scrollX.toFloat() / computeHorizontalScrollRange()
+        computeVerticalScrollRange() > 0 -> scrollY.toFloat() / computeVerticalScrollRange()
+        else -> 0f
     }
 
     private fun reportPosition() {
@@ -134,7 +200,8 @@ private class DocumentWebView(context: Context) : WebView(context) {
         // Allows for pinch zoom, which changes the pixels per CSS px.
         val pxPerCssPx = computeVerticalScrollRange().toFloat() / contentHeight
         val maxY = computeVerticalScrollRange() - computeVerticalScrollExtent()
-        onPositionChange(scrollY / pxPerCssPx, height / pxPerCssPx, maxY > 0 && scrollY >= maxY - 1)
+        val screen = if (width > 0) (scrollX.toFloat() / width).roundToInt() else 0
+        onPositionChange(ViewPosition(scrollY / pxPerCssPx, height / pxPerCssPx, maxY > 0 && scrollY >= maxY - 1, screen))
     }
 
     /** Scrolls to [cssPxBelowTop] CSS px from the top of the page, as far as the document allows. */
@@ -148,8 +215,21 @@ private class DocumentWebView(context: Context) : WebView(context) {
         scrollTo(0, y)
     }
 
+    /** Shows [screen] of swiped pages (see [DocumentHtml.screens]), or the nearest one there is. */
+    fun turnTo(screen: Int) {
+        val maxX = (computeHorizontalScrollRange() - width).coerceAtLeast(0)
+        val x = (screen * width).coerceIn(0, maxX)
+        if (x != scrollX) restoringToX = x
+        scrollTo(x, 0)
+    }
+
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
+        if (l == restoringToX) {
+            restoringToX = null
+        } else if (l != oldl) {
+            onPageTurn()
+        }
         if (t == restoringTo) {
             restoringTo = null
         } else if (t != oldt) {

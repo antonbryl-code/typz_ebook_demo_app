@@ -48,6 +48,50 @@ class ViewGeometryTest {
     }
 
     @Test
+    fun showsBooksAPageAtATimeOnNarrowViews() {
+        // A phone held upright: 411 x 820 dp, narrower than 0.8 of its height.
+        val layout = ViewGeometry.bookLayout(1080, 2152, 2.625f, 428.625f, 424.6f, 1f)
+        assertEquals(PageMode.SINGLE, layout.mode)
+        assertEquals(411 * layout.ptPerCssPx, layout.widthPt, 0.01f)
+        assertEquals(820 * layout.ptPerCssPx, layout.heightPt!!, 0.01f)
+    }
+
+    @Test
+    fun scrollsBooksOnWideButShortViews() {
+        // The same phone on its side: 6.3 cm tall, so pages as wide as the view and √2 times as tall.
+        val layout = ViewGeometry.bookLayout(2152, 1050, 2.625f, 428.625f, 424.6f, 1f)
+        assertEquals(PageMode.SCROLLED, layout.mode)
+        assertEquals(820 * layout.ptPerCssPx, layout.widthPt, 0.01f)
+        assertEquals(layout.widthPt * 1.414f, layout.heightPt!!, 0.01f)
+    }
+
+    @Test
+    fun showsSpreadsOnWideAndTallViews() {
+        // A tablet on its side: 1280 x 752 dp at 2x and 274 dpi, 13.9 cm tall.
+        val layout = ViewGeometry.bookLayout(2560, 1504, 2f, 274f, 274f, 1f)
+        assertEquals(PageMode.SPREAD, layout.mode)
+        assertEquals(640 * layout.ptPerCssPx, layout.widthPt, 0.01f)
+        assertEquals(752 * layout.ptPerCssPx, layout.heightPt!!, 0.01f)
+    }
+
+    @Test
+    fun switchesLayoutsAtTheThresholds() {
+        // Exactly 0.8: no longer one page at a time.
+        assertNotEquals(PageMode.SINGLE, ViewGeometry.bookLayout(800, 1000, 1f, 160f, 160f, 1f).mode)
+        assertEquals(PageMode.SINGLE, ViewGeometry.bookLayout(799, 1000, 1f, 160f, 160f, 1f).mode)
+        // 9 cm at 254 dpi is 900 px: still scrolled at 900, spreads above.
+        assertEquals(PageMode.SCROLLED, ViewGeometry.bookLayout(2000, 900, 1f, 254f, 254f, 1f).mode)
+        assertEquals(PageMode.SPREAD, ViewGeometry.bookLayout(2000, 901, 1f, 254f, 254f, 1f).mode)
+    }
+
+    @Test
+    fun laysOutPagelessDocumentsWithoutAHeight() {
+        val layout = ViewGeometry.layout(400, 1f, 96f, 1f)
+        assertEquals(PageMode.PAGELESS, layout.mode)
+        assertEquals(null, layout.heightPt)
+    }
+
+    @Test
     fun distrustsImplausibleDpi() {
         assertEquals(428.625f, ViewGeometry.physicalDpi(428.625f, 420), 0f)
         assertEquals(420f, ViewGeometry.physicalDpi(0f, 420), 0f)

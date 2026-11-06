@@ -82,7 +82,7 @@ class TypzManifestTest {
     }
 
     @Test
-    fun findsFormatProblemAfterOtherEntries() {
+    fun findsFormatAfterOtherEntries() {
         val out = ByteArrayOutputStream()
         ZipOutputStream(out).use { zip ->
             for ((name, content) in listOf("a.typ" to "= A", "typst.toml" to "[tool.typzy-reader]\nformat = \"book\"")) {
@@ -91,10 +91,7 @@ class TypzManifestTest {
                 zip.closeEntry()
             }
         }
-        assertEquals(
-            "The \"book\" format is not implemented yet.",
-            TypzArchive.formatProblem(ByteArrayInputStream(out.toByteArray())),
-        )
+        assertEquals("book", TypzArchive.format(ByteArrayInputStream(out.toByteArray())))
     }
 
     @Test

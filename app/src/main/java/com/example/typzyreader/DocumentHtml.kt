@@ -4,19 +4,29 @@ import java.util.Locale
 import kotlin.math.abs
 
 /**
- * Builds the page shown in the document WebView: the page SVGs inlined and stacked vertically.
+ * Builds the page shown in the document WebView: the page SVGs inlined, in one of the
+ * [PageMode]s.
  *
  * The viewport is `device-width`, so 1 CSS px = 1 dp, showing however many points the text size
- * calls for (see [ViewGeometry]), and a page reflowed to the view's width fills it. Pages wider than the view are scaled down to fit in documents rendered
- * as authored; in documents that reflowed, they are pages the document deliberately made wider
- * (e.g. for a big table), so they keep their size and scroll sideways, with a serrated edge on
- * each side there's more of the page to scroll to. Narrower pages keep their size and are
- * centered. Pages follow each other without gaps.
+ * calls for (see [ViewGeometry]), and a page reflowed to the view's width fills it.
+ *
+ * Pageless documents' pages are stacked vertically without gaps. Pages wider than the view are
+ * scaled down to fit in documents rendered as authored; in documents that reflowed, they are
+ * pages the document deliberately made wider (e.g. for a big table), so they keep their size and
+ * scroll sideways, with a serrated edge on each side there's more of the page to scroll to.
+ * Narrower pages keep their size and are centered.
+ *
+ * Books in [PageMode.SCROLLED] are stacked the same way, with gaps between the pages. In the
+ * swiped modes, pages sit side by side, one or two to a screen, and the page itself scrolls
+ * sideways a whole screen at a time (CSS scroll snapping, so no JavaScript is needed).
  */
 object DocumentHtml {
     /** Serration teeth on the edges of sideways-scrolling pages: how far they cut in, and their pitch. */
     private const val TOOTH_DEPTH_PX = 5
     private const val TOOTH_PITCH_PX = 10
+
+    /** Space between the pages of a book in [PageMode.SCROLLED], in CSS px. */
+    const val BOOK_PAGE_GAP_PX = 12
 
     /** How close to the view's width a page must be to count as reflowed, in points. */
     private const val WIDTH_TOLERANCE_PT = 0.5f
@@ -27,7 +37,8 @@ object DocumentHtml {
      * derives from the app's XML theme instead of the system's dark mode. [topPaddingPx] keeps
      * the top of the document clear of a toolbar laid over the view. [viewWidthPt] is the width
      * the document was compiled for; null treats it as not reflowed. [ptPerCssPx] sets the size
-     * pages appear at; the default is CSS's own 96 px per 72pt.
+     * pages appear at; the default is CSS's own 96 px per 72pt. In the swiped [mode]s, pages
+     * are sized to fit their place on screen instead.
      */
     fun build(
         document: TypstDocument,
@@ -35,27 +46,35 @@ object DocumentHtml {
         topPaddingPx: Int = 0,
         viewWidthPt: Float? = null,
         ptPerCssPx: Float = 0.75f,
+        mode: PageMode = PageMode.PAGELESS,
+    ): String =
+        if (mode.swiped) buildSwiped(document, dark, mode) else buildScrolled(document, dark, topPaddingPx, viewWidthPt, ptPerCssPx, mode)
+
+    private fun buildScrolled(
+        document: TypstDocument,
+        dark: Boolean,
+        topPaddingPx: Int,
+        viewWidthPt: Float?,
+        ptPerCssPx: Float,
+        mode: PageMode,
     ): String = buildString {
-        val reflowed = reflowed(document, viewWidthPt)
-        val scheme = if (dark) "dark" else "light"
-        val background = if (dark) "#202124" else "#e8e8e8"
+        val reflowed = mode == PageMode.PAGELESS && reflowed(document, viewWidthPt)
+        val background = background(dark)
         // Against a white page, the light background would barely show.
         val toothColor = if (dark) background else "#9e9e9e"
-        append(
-            """
-            <!DOCTYPE html>
-            <html><head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <meta name="color-scheme" content="$scheme">
-            <style>
-              html, body { margin: 0; padding: 0; background: $background; }
+        val gaps = if (mode == PageMode.SCROLLED) {
+            ".row { margin-bottom: ${BOOK_PAGE_GAP_PX}px; } .row:last-child { margin-bottom: 0; }"
+        } else {
+            ""
+        }
+        appendHead(dark, mode, """
               body { padding-top: ${topPaddingPx}px; }
               /* One per page; its scroller scrolls sideways when the page is wider than the view. */
               .row { position: relative; timeline-scope: --x; }
+              $gaps
               .scroller { overflow-x: auto; overflow-y: hidden; scroll-timeline: --x inline; }
-              /* Serrated edges, cut in a color that stands out from the page, where it continues beyond
-                 the view. They're shown by animations driven by the scroller's position (no
+              /* Serrated edges, cut in a color that stands out from the page, where it continues
+                 beyond the view. They're shown by animations driven by the scroller's position (no
                  JavaScript needed); a page that doesn't scroll has no active timeline, so they
                  stay hidden, as they do on WebViews without scroll-driven animations. */
               .row::before, .row::after {
@@ -76,10 +95,78 @@ object DocumentHtml {
               }
               @keyframes more-left { 0% { opacity: 0; } 1%, 100% { opacity: 1; } }
               @keyframes more-right { 0%, 99% { opacity: 1; } 100% { opacity: 0; } }
-              .page {
-                margin: 0 auto; background: white;
-                position: relative; container-type: inline-size;
+              .page { margin: 0 auto; }
+        """, background)
+        for (page in document.pages) {
+            // Typst sizes pages in pt; the aspect ratio keeps scaled-down pages proportional.
+            val widthPx = css(page.widthPt / ptPerCssPx)
+            val width = when {
+                // Fill the view exactly: its width was rounded to whole dp for compiling, so
+                // the page's own width can be a fraction of a pixel short of it.
+                reflowed && matches(page, viewWidthPt) -> "100%"
+                reflowed -> "${widthPx}px"
+                else -> "min(100%, ${widthPx}px)"
+            }
+            append("<div class=\"row\"><div class=\"scroller\">")
+            appendPage(page, width)
+            append("</div></div>\n")
+        }
+        append("</body></html>")
+    }
+
+    private fun buildSwiped(document: TypstDocument, dark: Boolean, mode: PageMode): String = buildString {
+        appendHead(dark, mode, """
+              /* The page itself scrolls sideways, so the WebView reports the scroll position. */
+              html { overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; }
+              body { display: flex; width: max-content; height: 100vh; }
+              /* One screen; a page turn always moves exactly one. */
+              .spread {
+                flex: 0 0 100vw; height: 100vh; display: flex;
+                scroll-snap-align: start; scroll-snap-stop: always;
               }
+              .slot { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: center; }
+              /* The two pages of a spread meet in the middle, like a book's. */
+              .spread > .slot:first-child:not(:last-child) { justify-content: flex-end; }
+              .spread > .slot:last-child:not(:first-child) { justify-content: flex-start; }
+              .page { flex: none; }
+        """, background(dark))
+        for (screen in screens(document.pages.size, mode)) {
+            append("<div class=\"spread\">")
+            for (index in screen) {
+                append("<div class=\"slot\">")
+                if (index != null) {
+                    val page = document.pages[index]
+                    // As large as fits the slot, which documents are compiled to fill exactly.
+                    appendPage(page, "min(100%, calc(100vh * ${css(page.widthPt)} / ${css(page.heightPt)}))")
+                }
+                append("</div>")
+            }
+            append("</div>\n")
+        }
+        append("</body></html>")
+    }
+
+    private fun StringBuilder.appendHead(dark: Boolean, mode: PageMode, css: String, background: String) {
+        val scheme = if (dark) "dark" else "light"
+        // Books are laid out for the view; zooming out would only show the next pages, small.
+        val viewport = if (mode == PageMode.PAGELESS) "width=device-width, initial-scale=1" else "width=device-width, initial-scale=1, minimum-scale=1"
+        append(
+            """
+            <!DOCTYPE html>
+            <html><head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="$viewport">
+            <meta name="color-scheme" content="$scheme">
+            <style>
+              html, body { margin: 0; padding: 0; background: $background; }
+            """.trimIndent()
+        )
+        append("\n")
+        append(css.trimIndent())
+        append("\n")
+        append(
+            """
+              .page { background: white; position: relative; container-type: inline-size; }
               .page > svg { display: block; width: 100%; height: 100%; }
               /* The invisible, selectable text layer over each page (see text_layer.rs). Its
                  lengths are in --u, one Typst point at the page's current size. */
@@ -99,38 +186,57 @@ object DocumentHtml {
             </head><body>
             """.trimIndent()
         )
-        for (page in document.pages) {
-            // Typst sizes pages in pt; the aspect ratio keeps scaled-down pages proportional.
-            val widthPx = css(page.widthPt / ptPerCssPx)
-            append("<div class=\"row\"><div class=\"scroller\"><div class=\"page\" style=\"width: ")
-            append(
-                when {
-                    // Fill the view exactly: its width was rounded to whole dp for compiling, so
-                    // the page's own width can be a fraction of a pixel short of it.
-                    reflowed && matches(page, viewWidthPt) -> "100%"
-                    reflowed -> "${widthPx}px"
-                    else -> "min(100%, ${widthPx}px)"
-                }
-            )
-            append("; aspect-ratio: ")
-            append(css(page.widthPt))
-            append(" / ")
-            append(css(page.heightPt))
-            // The text layer's unit: one Typst point at the page's actual width.
-            append("; --u: calc(100cqw / ")
-            append(css(page.widthPt))
-            append(")\">")
-            append(page.svg)
-            append("<div class=\"t\">")
-            append(page.textLayer)
-            append("</div></div></div></div>\n")
-        }
-        append("</body></html>")
+        append("\n")
+    }
+
+    /** A page, [width] wide (CSS), its height following from its aspect ratio. */
+    private fun StringBuilder.appendPage(page: TypstPage, width: String) {
+        append("<div class=\"page\" style=\"width: ")
+        append(width)
+        append("; aspect-ratio: ")
+        append(css(page.widthPt))
+        append(" / ")
+        append(css(page.heightPt))
+        // The text layer's unit: one Typst point at the page's actual width.
+        append("; --u: calc(100cqw / ")
+        append(css(page.widthPt))
+        append(")\">")
+        append(page.svg)
+        append("<div class=\"t\">")
+        append(page.textLayer)
+        append("</div></div>")
+    }
+
+    private fun background(dark: Boolean) = if (dark) "#202124" else "#e8e8e8"
+
+    /**
+     * The pages on each screen of a swiped [mode], by index; null leaves a slot blank. A spread
+     * starts like a book block: the first page alone on the right, then pairs.
+     */
+    fun screens(pageCount: Int, mode: PageMode): List<List<Int?>> = when (mode) {
+        PageMode.SPREAD -> (0..(pageCount / 2)).map { screen ->
+            listOf(2 * screen - 1, 2 * screen).map { it.takeIf { index -> index in 0 until pageCount } }
+        }.filter { screen -> screen.any { it != null } }
+        else -> (0 until pageCount).map { listOf(it) }
+    }
+
+    /** The screen of a swiped [mode] that shows the page [pageIndex]. */
+    fun screenOfPage(pageIndex: Int, mode: PageMode): Int =
+        if (mode == PageMode.SPREAD) (pageIndex + 1) / 2 else pageIndex
+
+    /**
+     * The index of the section being read on [screen] of a swiped [mode]: the last one starting
+     * on that screen's pages or before. Null if none has started yet.
+     */
+    fun currentSectionOnScreen(sections: List<TypstSection>, screen: Int, mode: PageMode): Int? {
+        val lastPage = if (mode == PageMode.SPREAD) 2 * screen else screen
+        return sections.indexOfLast { it.pageIndex <= lastPage }.takeIf { it >= 0 }
     }
 
     /**
      * How far below the first page's top [section] starts, in CSS px at no zoom, for a view
-     * [viewWidthCssPx] wide. Follows the page sizes that [build] asks for with the same arguments.
+     * [viewWidthCssPx] wide, in [PageMode.PAGELESS] or [PageMode.SCROLLED]. Follows the page sizes
+     * that [build] asks for with the same arguments.
      */
     fun sectionTopPx(
         document: TypstDocument,
@@ -138,8 +244,10 @@ object DocumentHtml {
         viewWidthCssPx: Float,
         viewWidthPt: Float?,
         ptPerCssPx: Float,
+        mode: PageMode = PageMode.PAGELESS,
     ): Float {
-        val reflowed = reflowed(document, viewWidthPt)
+        val reflowed = mode == PageMode.PAGELESS && reflowed(document, viewWidthPt)
+        val gap = if (mode == PageMode.SCROLLED) BOOK_PAGE_GAP_PX.toFloat() else 0f
         // The width a page ends up at sets the scale of everything on it.
         fun cssPxPerPt(page: TypstPage): Float {
             val widthPx = page.widthPt / ptPerCssPx
@@ -149,9 +257,10 @@ object DocumentHtml {
                 else -> minOf(viewWidthCssPx, widthPx)
             } / page.widthPt
         }
-        val pagesAbove = document.pages.take(section.pageIndex).sumOf { (it.heightPt * cssPxPerPt(it)).toDouble() }
-        val page = document.pages.getOrNull(section.pageIndex) ?: return pagesAbove.toFloat()
-        return pagesAbove.toFloat() + section.yPt * cssPxPerPt(page)
+        val above = document.pages.take(section.pageIndex)
+        val pagesAbove = above.sumOf { (it.heightPt * cssPxPerPt(it)).toDouble() }.toFloat() + above.size * gap
+        val page = document.pages.getOrNull(section.pageIndex) ?: return pagesAbove
+        return pagesAbove + section.yPt * cssPxPerPt(page)
     }
 
     /**
