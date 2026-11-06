@@ -146,6 +146,45 @@ class DocumentHtmlTest {
     }
 
     @Test
+    fun keepsTheReadingPositionAcrossLayouts() {
+        // Portrait: sections at 100 and 600 CSS px of a 1000 px document; the reader is at 350,
+        // halfway through the first section.
+        val portrait = SectionBounds(listOf(100f, 600f), 1000f)
+        val position = DocumentHtml.readingPosition(portrait, 350f)
+        assertEquals(ReadingPosition(0, 0.5f), position)
+        // Landscape, swiped: the same sections start on pages 1 and 3.5 of 5; halfway is page 2.25.
+        val landscape = SectionBounds(listOf(1f, 3.5f), 5f)
+        assertEquals(2.25f, DocumentHtml.locate(landscape, position), 0.001f)
+        // And back again.
+        assertEquals(350f, DocumentHtml.locate(portrait, DocumentHtml.readingPosition(landscape, 2.25f)), 0.01f)
+    }
+
+    @Test
+    fun keepsPositionsBeforeTheFirstSectionAndInTheLast() {
+        val bounds = SectionBounds(listOf(100f, 600f), 1000f)
+        assertEquals(ReadingPosition(-1, 0.5f), DocumentHtml.readingPosition(bounds, 50f))
+        assertEquals(ReadingPosition(1, 0.5f), DocumentHtml.readingPosition(bounds, 800f))
+        assertEquals(800f, DocumentHtml.locate(bounds, ReadingPosition(1, 0.5f)), 0.001f)
+        // A document without sections is one span from start to end.
+        val plain = SectionBounds(emptyList(), 400f)
+        assertEquals(200f, DocumentHtml.locate(plain, DocumentHtml.readingPosition(plain, 200f)), 0.001f)
+    }
+
+    @Test
+    fun measuresSwipedDocumentsInPages() {
+        val document = TypstDocument(
+            listOf(page(300f, 600f, "a"), page(300f, 600f, "b"), page(300f, 600f, "c")), "", null,
+            listOf(TypstSection("One", 0, 0f), TypstSection("Two", 1, 300f)),
+        )
+        val bounds = DocumentHtml.sectionBounds(document, ViewLayout(300f, 0.75f, 600f, PageMode.SINGLE), 400f)
+        assertEquals(listOf(0f, 1.5f), bounds.starts)
+        assertEquals(3f, bounds.end, 0f)
+        // The second spread starts at page 1.
+        assertEquals(1, DocumentHtml.firstPageOnScreen(1, PageMode.SPREAD))
+        assertEquals(0, DocumentHtml.firstPageOnScreen(0, PageMode.SPREAD))
+    }
+
+    @Test
     fun putsEachPageInARowThatScrollsSideways() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), ""), dark = false)
         assertEquals(2, Regex("<div class=\"row\"><div class=\"scroller\"><div class=\"page\"").findAll(html).count())

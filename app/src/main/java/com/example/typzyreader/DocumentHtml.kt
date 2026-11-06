@@ -4,6 +4,22 @@ import java.util.Locale
 import kotlin.math.abs
 
 /**
+ * A reader's place in a document that carries over to any layout of it: the index of the section
+ * being read (-1 before the first one) and how far through it, from 0 to 1.
+ */
+data class ReadingPosition(val section: Int, val fraction: Float)
+
+/**
+ * Where a document's sections start in one of its layouts ([starts], in order) and where it
+ * [end]s; see [DocumentHtml.sectionBounds].
+ */
+class SectionBounds(val starts: List<Float>, val end: Float) {
+    /** Where section [index] starts and the next one (or the end) begins; -1 is before the first. */
+    fun span(index: Int): Pair<Float, Float> =
+        (if (index >= 0) starts[index] else 0f) to (starts.getOrNull(index + 1) ?: end)
+}
+
+/**
  * Builds the page shown in the document WebView: the page SVGs inlined, in one of the
  * [PageMode]s.
  *
@@ -231,6 +247,44 @@ object DocumentHtml {
     fun currentSectionOnScreen(sections: List<TypstSection>, screen: Int, mode: PageMode): Int? {
         val lastPage = if (mode == PageMode.SPREAD) 2 * screen else screen
         return sections.indexOfLast { it.pageIndex <= lastPage }.takeIf { it >= 0 }
+    }
+
+    /**
+     * The first page shown on [screen] of a swiped [mode]: the page whose top a reader starts at.
+     */
+    fun firstPageOnScreen(screen: Int, mode: PageMode): Int =
+        if (mode == PageMode.SPREAD) maxOf(0, 2 * screen - 1) else screen
+
+    /**
+     * Where the sections of [document] start in [layout], and where it ends, in the units its
+     * position is measured in: CSS px from the top of the first page when scrolled, pages (with
+     * fractions for how far down one) when swiped. The view is [viewWidthCssPx] wide.
+     */
+    fun sectionBounds(document: TypstDocument, layout: ViewLayout, viewWidthCssPx: Float): SectionBounds {
+        if (layout.mode.swiped) {
+            val starts = document.sections.map { section ->
+                val pageHeight = document.pages.getOrNull(section.pageIndex)?.heightPt ?: 1f
+                section.pageIndex + section.yPt / pageHeight
+            }
+            return SectionBounds(starts, document.pages.size.toFloat())
+        }
+        fun top(section: TypstSection) =
+            sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode)
+        return SectionBounds(document.sections.map(::top), top(TypstSection("", document.pages.size, 0f)))
+    }
+
+    /** Where [at] is in terms of [bounds]'s sections, which holds in any layout of the document. */
+    fun readingPosition(bounds: SectionBounds, at: Float): ReadingPosition {
+        val section = bounds.starts.indexOfLast { it <= at }
+        val (from, to) = bounds.span(section)
+        val fraction = if (to > from) ((at - from) / (to - from)).coerceIn(0f, 1f) else 0f
+        return ReadingPosition(section, fraction)
+    }
+
+    /** Where [position] is in [bounds]'s layout, in its units (see [sectionBounds]). */
+    fun locate(bounds: SectionBounds, position: ReadingPosition): Float {
+        val (from, to) = bounds.span(position.section.coerceAtMost(bounds.starts.size - 1))
+        return from + position.fraction * (to - from)
     }
 
     /**

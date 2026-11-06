@@ -388,7 +388,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                                 .fillMaxSize()
                                 .semantics {
                                     contentDescription = "Typst document"
-                                    stateDescription = describe(shown)
+                                    stateDescription = describe(shown, currentSection)
                                 },
                         )
                     }
@@ -607,12 +607,16 @@ private fun keepReadAccess(context: Context, uri: Uri) {
     }
 }
 
-/** E.g. "2 pages laid out for a 300.00pt wide view: 300 × 410 pt, 300 × 52 pt". */
-private fun describe(shown: ViewerContent.Document): String {
+/**
+ * E.g. "2 pages laid out for a 300.00pt wide view: 300 × 410 pt, 300 × 52 pt", followed by the
+ * section being read, if any: "; reading Chapter One".
+ */
+private fun describe(shown: ViewerContent.Document, currentSection: Int?): String {
     val pages = shown.document.pages
+    val reading = currentSection?.let { shown.document.sections.getOrNull(it) }?.let { "; reading ${it.name}" }
     return "${pages.size} ${if (pages.size == 1) "page" else "pages"} laid out for a " +
         "${"%.2f".format(shown.layout.widthPt)}pt wide view: " +
-        pages.joinToString { "%.0f × %.0f pt".format(it.widthPt, it.heightPt) }
+        pages.joinToString { "%.0f × %.0f pt".format(it.widthPt, it.heightPt) } + reading.orEmpty()
 }
 
 /** The format named by the manifest of the file at [uri] (see [TypzArchive.format]). */

@@ -16,6 +16,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.isNotDisplayed
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.assertIsNotDisplayed
@@ -132,6 +133,49 @@ class TypzViewerTest {
         val dpi = ViewGeometry.physicalDpi(metrics.xdpi, metrics.densityDpi)
         val widthPt = 400 * ViewGeometry.ptPerCssPx(metrics.density, dpi, ReaderSettings.DEFAULT_TEXT_SIZE / 100f)
         waitForDocument(": %.0f × ".format(widthPt))
+    }
+
+    @Test
+    fun keepsTheReadersPlaceWhenTheViewTurns() {
+        val chapters = (1..4).joinToString("\n") { "#pagebreak(weak: true)\n= Chapter $it\n#lorem(500)" }
+        val mainTyp = """
+            #set page(
+              width: eval(sys.inputs.at("ebook-width")),
+              height: eval(sys.inputs.at("ebook-height")),
+              margin: eval(sys.inputs.at("ebook-margin")),
+            )
+        """.trimIndent() + "\n" + chapters
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, manifestExtra = "[tool.typzy-reader]\nformat = \"book\"\n"))
+        var portrait by mutableStateOf(true)
+        compose.setContent {
+            // Like a phone turning: one page at a time upright, pages scrolled sideways.
+            val size = if (portrait) Modifier.width(400.dp).height(700.dp) else Modifier.width(700.dp).height(400.dp)
+            Box(size) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("; reading Chapter 1")
+        val portraitWidth = compose.onNodeWithContentDescription("Typst document").fetchSemanticsNode()
+            .config[SemanticsProperties.StateDescription].substringBefore("pt wide")
+
+        // Show the toolbar with a tap, and jump to Chapter 3.
+        compose.onNodeWithContentDescription("Typst document").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isDisplayed() }
+        compose.onNodeWithContentDescription("Book contents").performClick()
+        compose.onNodeWithText("Chapter 3").performClick()
+        waitForDocument("; reading Chapter 3")
+
+        portrait = false
+        compose.waitUntil(timeoutMillis = 15_000) {
+            val state = compose.onNodeWithContentDescription("Typst document").fetchSemanticsNode()
+                .config[SemanticsProperties.StateDescription]
+            !state.startsWith(portraitWidth) && state.endsWith("; reading Chapter 3")
+        }
+
+        portrait = true
+        compose.waitUntil(timeoutMillis = 15_000) {
+            val state = compose.onNodeWithContentDescription("Typst document").fetchSemanticsNode()
+                .config[SemanticsProperties.StateDescription]
+            state.startsWith(portraitWidth) && state.endsWith("; reading Chapter 3")
+        }
     }
 
     @Test
