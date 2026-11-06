@@ -633,7 +633,7 @@ private fun openBundle(context: Context, uri: Uri): TypstBundle {
 
 private fun compile(bundle: TypstBundle, layout: ViewLayout): ViewerContent = try {
     ViewerContent.Document(
-        bundle.compile(layout.widthPt, ViewGeometry.MARGIN_PT, layout.heightPt, TypstUniverse),
+        bundle.compile(layout.widthPt, layout.marginPt, layout.heightPt, TypstUniverse),
         layout,
     )
 } catch (e: TypstCompileException) {

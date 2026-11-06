@@ -23,19 +23,30 @@ enum class PageMode {
 /**
  * How documents are laid out for the view: the page width in Typst points offered to documents
  * (see [TypstBundle.compile]), the page height for books (null for pageless documents), how many
- * of those points one CSS px shows (see [DocumentHtml]), and how the pages are shown.
+ * of those points one CSS px shows (see [DocumentHtml]), how the pages are shown, and the margin
+ * suggested to documents (see [ViewGeometry.marginPt]).
  */
 data class ViewLayout(
     val widthPt: Float,
     val ptPerCssPx: Float,
     val heightPt: Float? = null,
     val mode: PageMode = PageMode.PAGELESS,
+    val marginPt: Float = ViewGeometry.marginPt(widthPt),
 )
 
 /** Geometry offered to documents, derived from the document view's size and the screen. */
 object ViewGeometry {
-    /** Margin suggested to documents on every side, in points. */
+    /** Margin suggested to documents on every side, in points, unless pages are too wide for it. */
     const val MARGIN_PT = 12f
+
+    /** The widest text field (page width less both margins) suggested to documents: 15 cm, in points. */
+    const val MAX_TEXT_WIDTH_PT = 15f / 2.54f * 72f
+
+    /**
+     * The margin suggested on every side of a page [widthPt] wide: [MARGIN_PT], or more, so that
+     * lines are at most [MAX_TEXT_WIDTH_PT] long (in the document's own units, so at any text size).
+     */
+    fun marginPt(widthPt: Float): Float = maxOf(MARGIN_PT, (widthPt - MAX_TEXT_WIDTH_PT) / 2)
 
     /** Below this width-to-height ratio, a book shows one page filling the view. */
     const val SINGLE_PAGE_MAX_ASPECT = 0.8f

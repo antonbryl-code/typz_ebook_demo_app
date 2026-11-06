@@ -92,6 +92,27 @@ class ViewGeometryTest {
     }
 
     @Test
+    fun keepsTheTextFieldWithin15cm() {
+        // Narrow pages keep the usual margin.
+        assertEquals(12f, ViewGeometry.marginPt(300f), 0f)
+        assertEquals(12f, ViewGeometry.marginPt(ViewGeometry.MAX_TEXT_WIDTH_PT + 24f), 0.001f)
+        // Wider ones get margins that leave exactly 15 cm (425.2pt) of text.
+        val wide = 800f
+        val margin = ViewGeometry.marginPt(wide)
+        assertEquals(425.197f, wide - 2 * margin, 0.01f)
+    }
+
+    @Test
+    fun suggestsMarginsForTheLaidOutPageWidth() {
+        // A tablet on its side at 100%: each page of a spread gets its own margin.
+        val spread = ViewGeometry.bookLayout(2560, 1504, 2f, 274f, 274f, 1f)
+        assertEquals(ViewGeometry.marginPt(spread.widthPt), spread.marginPt, 0f)
+        // A wide pageless view (1280 dp at 0.6 scale: 1600pt) gets wide margins.
+        val pageless = ViewGeometry.layout(2560, 2f, 274f, 0.6f)
+        assertEquals(425.197f, pageless.widthPt - 2 * pageless.marginPt, 0.01f)
+    }
+
+    @Test
     fun distrustsImplausibleDpi() {
         assertEquals(428.625f, ViewGeometry.physicalDpi(428.625f, 420), 0f)
         assertEquals(420f, ViewGeometry.physicalDpi(0f, 420), 0f)
