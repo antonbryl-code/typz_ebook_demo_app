@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.os.SystemClock
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
@@ -137,6 +138,20 @@ private const val SECTION_GAP_PX = 8f
 private const val RESTORE_ATTEMPTS = 30
 private const val RESTORE_RETRY_MS = 33L
 
+/**
+ * How long, and how often, to check after restoring that the view stayed there: the WebView can
+ * still move it (clamping it to a scroll range it hasn't updated yet, or re-snapping), and then
+ * it's put back.
+ */
+private const val VERIFY_CHECKS = 10
+private const val VERIFY_INTERVAL_MS = 50L
+
+/**
+ * How long after the reader last touched the view its scrolling counts as theirs (a fling goes on
+ * after the finger lifts); other scrolling is the WebView's own, e.g. clamping or re-snapping.
+ */
+private const val USER_SCROLL_WINDOW_MS = 3000L
+
 /** Where to put the view once new content is shown: a scroll position, or a screen of pages. */
 private sealed interface RestoreTarget {
     /** CSS px from the top of the first page. */
@@ -224,7 +239,13 @@ private class DocumentWebView(context: Context) : WebView(context) {
         webViewClient = LinkOpeningClient()
     }
 
+    /** When the reader last touched the view, in [SystemClock.uptimeMillis]. */
+    private var lastTouchMs = Long.MIN_VALUE / 2
+
+    private fun touchedRecently() = SystemClock.uptimeMillis() - lastTouchMs < USER_SCROLL_WINDOW_MS
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        lastTouchMs = SystemClock.uptimeMillis()
         taps.onTouchEvent(event) // only watches; the WebView still handles every event
         return super.onTouchEvent(event)
     }
@@ -263,12 +284,38 @@ private class DocumentWebView(context: Context) : WebView(context) {
             postDelayed({ restore(load, swiped, rangeBefore, restoreTo, attemptsLeft - 1) }, RESTORE_RETRY_MS)
             return
         }
-        when (val target = restoreTo()) {
-            is RestoreTarget.Scroll -> jumpTo(target.cssPx)
-            is RestoreTarget.Screen -> turnTo(target.index)
+        val target = restoreTo()
+        moveTo(target)
+        verify(load, target, VERIFY_CHECKS)
+    }
+
+    /**
+     * Puts the view back at [target] whenever the WebView has moved it since, until it stays put
+     * or the reader takes over; only then does the reader's place follow the view again.
+     */
+    private fun verify(load: Int, target: RestoreTarget, checksLeft: Int) {
+        if (load != loads) return
+        if (!touchedRecently()) {
+            val (x, y) = scrollFor(target)
+            if (scrollX != x || scrollY != y) moveTo(target)
+            if (checksLeft > 0) {
+                postDelayed({ verify(load, target, checksLeft - 1) }, VERIFY_INTERVAL_MS)
+                return
+            }
         }
         loading = false
         reportPosition(byUser = false) // also if that didn't scroll
+    }
+
+    private fun moveTo(target: RestoreTarget) = when (target) {
+        is RestoreTarget.Scroll -> jumpTo(target.cssPx)
+        is RestoreTarget.Screen -> turnTo(target.index)
+    }
+
+    /** Where [target] puts the view, as scroll offsets in pixels. */
+    private fun scrollFor(target: RestoreTarget): Pair<Int, Int> = when (target) {
+        is RestoreTarget.Scroll -> 0 to scrollYFor(target.cssPx)
+        is RestoreTarget.Screen -> scrollXFor(target.index) to 0
     }
 
     private fun scrollRange(swiped: Boolean) = if (swiped) computeHorizontalScrollRange() else computeVerticalScrollRange()
@@ -289,38 +336,47 @@ private class DocumentWebView(context: Context) : WebView(context) {
     /** Scrolls to [cssPxBelowTop] CSS px from the top of the page, as far as the document allows. */
     fun jumpTo(cssPxBelowTop: Float) {
         if (contentHeight == 0) return
-        // Allows for pinch zoom, which changes the pixels per CSS px.
-        val pxPerCssPx = computeVerticalScrollRange().toFloat() / contentHeight
-        val maxY = (computeVerticalScrollRange() - computeVerticalScrollExtent()).coerceAtLeast(0)
-        val y = (cssPxBelowTop * pxPerCssPx).roundToInt().coerceIn(0, maxY)
+        val y = scrollYFor(cssPxBelowTop)
         if (y != scrollY) restoringTo = y
         scrollTo(0, y)
     }
 
+    private fun scrollYFor(cssPxBelowTop: Float): Int {
+        if (contentHeight == 0) return 0
+        // Allows for pinch zoom, which changes the pixels per CSS px.
+        val pxPerCssPx = computeVerticalScrollRange().toFloat() / contentHeight
+        val maxY = (computeVerticalScrollRange() - computeVerticalScrollExtent()).coerceAtLeast(0)
+        return (cssPxBelowTop * pxPerCssPx).roundToInt().coerceIn(0, maxY)
+    }
+
     /** Shows [screen] of swiped pages (see [DocumentHtml.screens]), or the nearest one there is. */
     fun turnTo(screen: Int) {
-        val maxX = (computeHorizontalScrollRange() - width).coerceAtLeast(0)
-        val x = (screen * width).coerceIn(0, maxX)
+        val x = scrollXFor(screen)
         if (x != scrollX) restoringToX = x
         scrollTo(x, 0)
     }
 
+    private fun scrollXFor(screen: Int): Int {
+        val maxX = (computeHorizontalScrollRange() - width).coerceAtLeast(0)
+        return (screen * width).coerceIn(0, maxX)
+    }
+
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
-        var byUser = false
+        var moved = false
         if (l == restoringToX) {
             restoringToX = null
         } else if (l != oldl) {
             onPageTurn()
-            byUser = true
+            moved = true
         }
         if (t == restoringTo) {
             restoringTo = null
         } else if (t != oldt) {
             onScroll(t - oldt)
-            byUser = true
+            moved = true
         }
-        reportPosition(byUser)
+        reportPosition(byUser = moved && touchedRecently())
     }
 
     private class LinkOpeningClient : WebViewClient() {
