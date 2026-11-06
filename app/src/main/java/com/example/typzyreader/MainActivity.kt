@@ -118,6 +118,12 @@ class MainActivity : ComponentActivity() {
 /** How long the document view's width must stay put before recompiling, to coalesce resizes. */
 private const val RESIZE_DEBOUNCE_MS = 150L
 
+/**
+ * How many layouts of the open document are kept compiled: enough to turn the phone back and
+ * forth, or try a few text sizes, without recompiling; each holds all of its pages' SVGs.
+ */
+private const val COMPILED_LAYOUTS = 4
+
 /** How long after the last scroll step a half-hidden toolbar snaps fully in or out. */
 private const val BAR_SNAP_DELAY_MS = 150L
 
@@ -259,14 +265,23 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
         cover = withContext(Dispatchers.Default) { decodeCover(data, maxWidthPx, maxHeightPx) }
     }
 
+    // The document as compiled for the layouts it was recently shown at, e.g. both orientations.
+    val compiled = remember(bundle) { LayoutCache<ViewLayout, ViewerContent.Document>(COMPILED_LAYOUTS) }
     LaunchedEffect(bundle, layout) {
         val current = bundle ?: return@LaunchedEffect
         val target = layout ?: return@LaunchedEffect
+        compiled[target]?.let {
+            content = it
+            return@LaunchedEffect
+        }
         delay(RESIZE_DEBOUNCE_MS)
         // The previous rendering stays up meanwhile, so a resize doesn't flash an empty view.
         recompiling = true
         try {
-            content = withContext(Dispatchers.IO) { compile(current, target) }
+            val result = withContext(Dispatchers.IO) { compile(current, target) }
+            // Errors aren't kept: a later attempt may succeed, e.g. once packages can be downloaded.
+            if (result is ViewerContent.Document) compiled[target] = result
+            content = result
         } finally {
             recompiling = false
         }
