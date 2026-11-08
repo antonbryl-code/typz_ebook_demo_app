@@ -17,6 +17,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -68,6 +69,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -198,6 +200,11 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     var documentScrolls by remember { mutableIntStateOf(0) }
     // Whether the document view shows its document, rather than hiding it while it's set up.
     var documentShowing by remember { mutableStateOf(true) }
+    // Where the view is in the document, for the bottom bar's slider, and the slider's moves.
+    var progress by remember { mutableStateOf<DocumentProgress?>(null) }
+    val slides = remember { MutableSharedFlow<Float>(extraBufferCapacity = 1) }
+    // While the slider is dragged, the scrolling it causes doesn't hide the bars.
+    var sliding by remember { mutableStateOf(false) }
     val barAnimation = remember { mutableStateOf<Job?>(null) }
     // Slides the toolbar fully in or out, as books do on taps and page turns.
     val showBar = { shown: Boolean ->
@@ -377,7 +384,11 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                             topPadding = if (shown.book) 0.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
                             sectionJumps = sectionJumps,
                             onCurrentSectionChange = { currentSection = it },
+                            bottomPadding = if (shown.book) 0.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
+                            onProgressChange = { progress = it },
+                            slides = slides,
                             onScroll = { dy ->
+                                if (sliding) return@DocumentView
                                 if (shown.book) {
                                     showBar(false)
                                 } else {
@@ -388,7 +399,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                             onTap = {
                                 if (shown.book) showBar(barState.heightOffset < barState.heightOffsetLimit / 2)
                             },
-                            onPageTurn = { if (shown.book) showBar(false) },
+                            onPageTurn = { if (shown.book && !sliding) showBar(false) },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .semantics {
@@ -459,6 +470,22 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                         )
                     }
                 }
+                val shownProgress = progress
+                if (showingDocument && shownProgress != null) {
+                    // Slides in and out with the toolbar: the same share of each is on screen.
+                    val limit = barState.heightOffsetLimit
+                    val barShown = if (limit < 0f && limit > -Float.MAX_VALUE) 1f - barState.heightOffset / limit else 1f
+                    PositionBar(
+                        progress = shownProgress,
+                        shownFraction = barShown,
+                        onSlide = {
+                            sliding = true
+                            slides.tryEmit(it)
+                        },
+                        onSlideEnd = { sliding = false },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
             }
         }
     }
@@ -527,6 +554,62 @@ private fun SettingsDialog(
             }
         },
     )
+}
+
+/**
+ * The bar at the bottom: where the view is in the document, and a slider to move through it. As
+ * tall and coloured as the toolbar, and pushed off the bottom of the screen by the share of it
+ * that [shownFraction] says is hidden.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PositionBar(
+    progress: DocumentProgress,
+    shownFraction: Float,
+    onSlide: (Float) -> Unit,
+    onSlideEnd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // While dragging, the slider follows the finger rather than the (slightly later) view.
+    var dragged by remember(progress.max) { mutableStateOf<Float?>(null) }
+    Surface(
+        color = TopAppBarDefaults.topAppBarColors().containerColor,
+        modifier = modifier
+            .fillMaxWidth()
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height) {
+                    placeable.place(0, (placeable.height * (1f - shownFraction)).roundToInt())
+                }
+            },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                .height(TopAppBarDefaults.TopAppBarExpandedHeight)
+                .padding(horizontal = 16.dp),
+        ) {
+            Text(progress.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            Spacer(Modifier.width(16.dp))
+            Slider(
+                value = dragged ?: progress.value,
+                onValueChange = {
+                    dragged = it
+                    onSlide(it)
+                },
+                onValueChangeFinished = {
+                    dragged = null
+                    onSlideEnd()
+                },
+                valueRange = 0f..maxOf(progress.max, 0.001f),
+                enabled = progress.max > 0f,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { contentDescription = "Position in document" },
+            )
+        }
+    }
 }
 
 /** The panel opened from the toolbar: the book's cover, its title and its top-level sections to jump to. */

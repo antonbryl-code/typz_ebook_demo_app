@@ -146,6 +146,35 @@ class DocumentHtmlTest {
     }
 
     @Test
+    fun labelsPositions() {
+        assertEquals("Page 3 of 12", DocumentHtml.pagesLabel(listOf(2), 12))
+        assertEquals("Pages 2–3 of 12", DocumentHtml.pagesLabel(listOf(1, 2), 12))
+        assertEquals("", DocumentHtml.pagesLabel(emptyList(), 12))
+        assertEquals("0%", DocumentHtml.percentLabel(0f))
+        assertEquals("42%", DocumentHtml.percentLabel(0.42f))
+        assertEquals("100%", DocumentHtml.percentLabel(1f))
+    }
+
+    @Test
+    fun findsThePageAtTheTopOfAScrolledBook() {
+        // Pages 400 CSS px tall at 0.75pt per px (300pt), with 12 px gaps.
+        val document = TypstDocument(List(3) { page(300f, 300f, "p$it") }, "")
+        val layout = ViewLayout(300f, 0.75f, 300f, PageMode.SCROLLED)
+        assertEquals(0, DocumentHtml.pageAt(document, layout, 400f, 0f))
+        assertEquals(0, DocumentHtml.pageAt(document, layout, 400f, 410f))
+        assertEquals(1, DocumentHtml.pageAt(document, layout, 400f, 412f))
+        assertEquals(2, DocumentHtml.pageAt(document, layout, 400f, 2000f))
+    }
+
+    @Test
+    fun leavesRoomForTheBottomBar() {
+        val html = DocumentHtml.build(TypstDocument(emptyList(), ""), dark = false, topPaddingPx = 64, bottomPaddingPx = 64)
+        assertTrue(html, html.contains("body { padding-top: 64px; padding-bottom: 64px; }"))
+        // No thin scrollbars, on the page or on sideways-scrolling strips.
+        assertTrue(html, html.contains("scrollbar-width: none"))
+    }
+
+    @Test
     fun keepsTheReadingPositionAcrossLayouts() {
         // Portrait: sections at 100 and 600 CSS px of a 1000 px document; the reader is at 350,
         // halfway through the first section.
@@ -188,7 +217,7 @@ class DocumentHtmlTest {
     fun putsEachPageInARowThatScrollsSideways() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), ""), dark = false)
         assertEquals(2, Regex("<div class=\"row\"><div class=\"scroller\"><div class=\"page\"").findAll(html).count())
-        assertTrue(html, html.contains(".scroller { overflow-x: auto; overflow-y: hidden; scroll-timeline: --x inline; }"))
+        assertTrue(html, html.contains(".scroller { overflow-x: auto; overflow-y: hidden; scroll-timeline: --x inline; scrollbar-width: none; }"))
     }
 
     @Test
@@ -252,8 +281,8 @@ class DocumentHtmlTest {
     @Test
     fun leavesRoomForToolbar() {
         val empty = TypstDocument(emptyList(), "")
-        assertTrue(DocumentHtml.build(empty, dark = false).contains("body { padding-top: 0px; }"))
-        assertTrue(DocumentHtml.build(empty, dark = false, topPaddingPx = 64).contains("body { padding-top: 64px; }"))
+        assertTrue(DocumentHtml.build(empty, dark = false).contains("body { padding-top: 0px; padding-bottom: 0px; }"))
+        assertTrue(DocumentHtml.build(empty, dark = false, topPaddingPx = 64).contains("body { padding-top: 64px; padding-bottom: 0px; }"))
     }
 
     @Test

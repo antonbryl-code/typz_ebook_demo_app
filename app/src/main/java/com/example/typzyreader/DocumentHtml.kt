@@ -2,12 +2,19 @@ package com.example.typzyreader
 
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * A reader's place in a document that carries over to any layout of it: the index of the section
  * being read (-1 before the first one) and how far through it, from 0 to 1.
  */
 data class ReadingPosition(val section: Int, val fraction: Float)
+
+/**
+ * Where the view is in a document, for the slider in the bottom bar: [value] from 0 to [max]
+ * (screens of swiped pages, or the fraction scrolled), and a [label] like "Page 3 of 12".
+ */
+data class DocumentProgress(val value: Float, val max: Float, val label: String)
 
 /**
  * Where a document's sections start in one of its layouts ([starts], in order) and where it
@@ -63,13 +70,18 @@ object DocumentHtml {
         viewWidthPt: Float? = null,
         ptPerCssPx: Float = 0.75f,
         mode: PageMode = PageMode.PAGELESS,
-    ): String =
-        if (mode.swiped) buildSwiped(document, dark, mode) else buildScrolled(document, dark, topPaddingPx, viewWidthPt, ptPerCssPx, mode)
+        bottomPaddingPx: Int = 0,
+    ): String = if (mode.swiped) {
+        buildSwiped(document, dark, mode)
+    } else {
+        buildScrolled(document, dark, topPaddingPx, bottomPaddingPx, viewWidthPt, ptPerCssPx, mode)
+    }
 
     private fun buildScrolled(
         document: TypstDocument,
         dark: Boolean,
         topPaddingPx: Int,
+        bottomPaddingPx: Int,
         viewWidthPt: Float?,
         ptPerCssPx: Float,
         mode: PageMode,
@@ -84,11 +96,11 @@ object DocumentHtml {
             ""
         }
         appendHead(dark, mode, """
-              body { padding-top: ${topPaddingPx}px; }
+              body { padding-top: ${topPaddingPx}px; padding-bottom: ${bottomPaddingPx}px; }
               /* One per page; its scroller scrolls sideways when the page is wider than the view. */
               .row { position: relative; timeline-scope: --x; }
               $gaps
-              .scroller { overflow-x: auto; overflow-y: hidden; scroll-timeline: --x inline; }
+              .scroller { overflow-x: auto; overflow-y: hidden; scroll-timeline: --x inline; scrollbar-width: none; }
               /* Serrated edges, cut in a color that stands out from the page, where it continues
                  beyond the view. They're shown by animations driven by the scroller's position (no
                  JavaScript needed); a page that doesn't scroll has no active timeline, so they
@@ -174,7 +186,7 @@ object DocumentHtml {
             <meta name="viewport" content="$viewport">
             <meta name="color-scheme" content="$scheme">
             <style>
-              html, body { margin: 0; padding: 0; background: $background; }
+              html, body { margin: 0; padding: 0; background: $background; scrollbar-width: none; }
             """.trimIndent()
         )
         append("\n")
@@ -248,6 +260,24 @@ object DocumentHtml {
         val lastPage = if (mode == PageMode.SPREAD) 2 * screen else screen
         return sections.indexOfLast { it.pageIndex <= lastPage }.takeIf { it >= 0 }
     }
+
+    /** The page at the top of the view when it's scrolled [scrollTopCssPx] down (not swiped). */
+    fun pageAt(document: TypstDocument, layout: ViewLayout, viewWidthCssPx: Float, scrollTopCssPx: Float): Int {
+        fun top(page: Int) = sectionTopPx(
+            document, TypstSection("", page, 0f), viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode,
+        )
+        return document.pages.indices.lastOrNull { top(it) <= scrollTopCssPx + 1f } ?: 0
+    }
+
+    /** E.g. "Page 3 of 12", or "Pages 2–3 of 12" for a spread; empty for no [pages]. */
+    fun pagesLabel(pages: List<Int>, pageCount: Int): String = when (pages.size) {
+        0 -> ""
+        1 -> "Page ${pages[0] + 1} of $pageCount"
+        else -> "Pages ${pages.first() + 1}\u2013${pages.last() + 1} of $pageCount"
+    }
+
+    /** E.g. "42%" for [fraction] 0.42. */
+    fun percentLabel(fraction: Float): String = "${(fraction * 100).roundToInt()}%"
 
     /**
      * The first page shown on [screen] of a swiped [mode]: the page whose top a reader starts at.

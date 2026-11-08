@@ -41,6 +41,10 @@ import kotlin.math.roundToInt
  *
  * The document is hidden while it's [stale] (laid out for a size the view no longer has) and
  * while new content is put in place; [onShowingChange] says when it's hidden or shown again.
+ *
+ * [onProgressChange] gets where the view is, for a slider, and each value from [slides] (in the
+ * same units, see [DocumentProgress]) moves it there as the reader's own scrolling would.
+ * [bottomPadding] leaves room below pageless documents for a bar laid over the view.
  */
 @Composable
 fun DocumentView(
@@ -55,11 +59,17 @@ fun DocumentView(
     onPageTurn: () -> Unit = {},
     stale: Boolean = false,
     onShowingChange: (Boolean) -> Unit = {},
+    bottomPadding: Dp = 0.dp,
+    onProgressChange: (DocumentProgress) -> Unit = {},
+    slides: Flow<Float> = emptyFlow(),
 ) {
     val dark = isSystemInDarkTheme()
     // With the device-width viewport, 1 CSS px = 1 dp.
-    val html = remember(document, layout, dark, topPadding) {
-        DocumentHtml.build(document, dark, topPadding.value.roundToInt(), layout.widthPt, layout.ptPerCssPx, layout.mode)
+    val html = remember(document, layout, dark, topPadding, bottomPadding) {
+        DocumentHtml.build(
+            document, dark, topPadding.value.roundToInt(), layout.widthPt, layout.ptPerCssPx, layout.mode,
+            bottomPadding.value.roundToInt(),
+        )
     }
     var webView by remember { mutableStateOf<DocumentWebView?>(null) }
     // Where the reader is, carried over when the document is laid out anew (e.g. on rotation).
@@ -76,6 +86,12 @@ fun DocumentView(
                 val top = DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode)
                 view.jumpTo(top - SECTION_GAP_PX)
             }
+        }
+    }
+    LaunchedEffect(webView, layout, slides) {
+        val view = webView ?: return@LaunchedEffect
+        slides.collect { value ->
+            if (layout.mode.swiped) view.slideToScreen(value.roundToInt()) else view.slideToFraction(value)
         }
     }
     AndroidView(
@@ -106,6 +122,7 @@ fun DocumentView(
                     )
                 }
                 onCurrentSectionChange(current)
+                onProgressChange(progress(document, layout, position, view.widthCssPx()))
                 // Only from the reader's own scrolling (a restored place stays as it was, rather
                 // than drifting with rounding), and only while the view shows this layout: not
                 // mid-rotation, when it has already changed size, nor while the next one loads.
@@ -134,6 +151,24 @@ fun DocumentView(
         onRelease = { it.destroy() },
         modifier = modifier,
     )
+}
+
+/** Where [position] is in [document], as laid out in [layout] for a view [viewWidthCssPx] wide. */
+private fun progress(document: TypstDocument, layout: ViewLayout, position: ViewPosition, viewWidthCssPx: Float): DocumentProgress {
+    val pageCount = document.pages.size
+    if (layout.mode.swiped) {
+        val screens = DocumentHtml.screens(pageCount, layout.mode)
+        val screen = position.screen.coerceIn(0, maxOf(0, screens.size - 1))
+        val label = DocumentHtml.pagesLabel(screens.getOrNull(screen).orEmpty().filterNotNull(), pageCount)
+        return DocumentProgress(screen.toFloat(), maxOf(0, screens.size - 1).toFloat(), label)
+    }
+    val fraction = if (position.maxScrollCssPx > 0) (position.scrollTopCssPx / position.maxScrollCssPx).coerceIn(0f, 1f) else 0f
+    val label = if (layout.mode == PageMode.PAGELESS) {
+        DocumentHtml.percentLabel(fraction)
+    } else {
+        DocumentHtml.pagesLabel(listOf(DocumentHtml.pageAt(document, layout, viewWidthCssPx, position.scrollTopCssPx)), pageCount)
+    }
+    return DocumentProgress(fraction, 1f, label)
 }
 
 /** Space kept between the toolbar and a section scrolled to, in CSS px. */
@@ -203,6 +238,8 @@ private const val SIZE_TOLERANCE_CSS_PX = 1.5f
  */
 private class ViewPosition(
     val scrollTopCssPx: Float,
+    /** How far down it can scroll, in CSS px at no zoom. */
+    val maxScrollCssPx: Float,
     val viewportHeightCssPx: Float,
     val atEnd: Boolean,
     val screen: Int,
@@ -276,6 +313,9 @@ private class DocumentWebView(context: Context) : WebView(context) {
             textZoom = 100 // SVG text doesn't scale with it anyway; keep the layout as compiled
         }
         setBackgroundColor(Color.TRANSPARENT) // the HTML paints the background (see DocumentHtml)
+        // The app's bottom bar shows the position instead.
+        isVerticalScrollBarEnabled = false
+        isHorizontalScrollBarEnabled = false
         webViewClient = LinkOpeningClient()
     }
 
@@ -386,7 +426,7 @@ private class DocumentWebView(context: Context) : WebView(context) {
         val maxY = computeVerticalScrollRange() - computeVerticalScrollExtent()
         val screen = if (width > 0) (scrollX.toFloat() / width).roundToInt() else 0
         val atEnd = maxY > 0 && scrollY >= maxY - 1
-        onPositionChange(ViewPosition(scrollY / pxPerCssPx, height / pxPerCssPx, atEnd, screen, loading, byUser))
+        onPositionChange(ViewPosition(scrollY / pxPerCssPx, maxOf(0, maxY) / pxPerCssPx, height / pxPerCssPx, atEnd, screen, loading, byUser))
     }
 
     /** Scrolls to [cssPxBelowTop] CSS px from the top of the page, as far as the document allows. */
@@ -406,6 +446,19 @@ private class DocumentWebView(context: Context) : WebView(context) {
     }
 
     /** Shows [screen] of swiped pages (see [DocumentHtml.screens]), or the nearest one there is. */
+    /** Turns to [screen] for the reader, as if they had swiped there (see [DocumentProgress]). */
+    fun slideToScreen(screen: Int) {
+        lastTouchMs = SystemClock.uptimeMillis()
+        scrollTo(scrollXFor(screen), 0)
+    }
+
+    /** Scrolls [fraction] of the way down for the reader, as if they had scrolled there. */
+    fun slideToFraction(fraction: Float) {
+        lastTouchMs = SystemClock.uptimeMillis()
+        val maxY = (computeVerticalScrollRange() - computeVerticalScrollExtent()).coerceAtLeast(0)
+        scrollTo(0, (fraction.coerceIn(0f, 1f) * maxY).roundToInt())
+    }
+
     fun turnTo(screen: Int) {
         val x = scrollXFor(screen)
         if (x != scrollX) restoringToX = x

@@ -179,6 +179,34 @@ class TypzViewerTest {
     }
 
     @Test
+    fun turnsBookPagesWithTheBottomSlider() {
+        val chapters = (1..4).joinToString("\n") { "#pagebreak(weak: true)\n= Chapter $it\n#lorem(300)" }
+        val mainTyp = """
+            #set page(
+              width: eval(sys.inputs.at("ebook-width")),
+              height: eval(sys.inputs.at("ebook-height")),
+              margin: eval(sys.inputs.at("ebook-margin")),
+            )
+        """.trimIndent() + "\n" + chapters
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, manifestExtra = "[tool.typzy-reader]\nformat = \"book\"\n"))
+        compose.setContent {
+            Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("; reading Chapter 1")
+        // Hidden with the toolbar; a tap shows both.
+        compose.onNodeWithContentDescription("Typst document").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Position in document").isDisplayed() }
+        compose.onNodeWithText("Page 1 of", substring = true).assertIsDisplayed()
+
+        compose.onNodeWithContentDescription("Position in document").performSemanticsAction(SemanticsActions.SetProgress) {
+            it(2f)
+        }
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithText("Page 3 of", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
     fun refusesUnknownFormat() {
         assertRefused("scroll", "\"scroll\" is an unknown value for the \"format\" parameter.")
     }
