@@ -103,10 +103,21 @@ class ViewGeometryTest {
     }
 
     @Test
+    fun keepsBookLinesWithin12AndAHalfCm() {
+        // A phone on its side at 60%: a 690pt scrolled page, so 354.3pt (12.5 cm) of text.
+        val scrolled = ViewGeometry.bookLayout(2152, 1050, 2.625f, 428.625f, 424.6f, 0.6f)
+        assertEquals(PageMode.SCROLLED, scrolled.mode)
+        assertEquals(354.33f, scrolled.widthPt - 2 * scrolled.marginPt, 0.01f)
+        // Upright, the page is narrow enough for the usual margin.
+        val single = ViewGeometry.bookLayout(1080, 2152, 2.625f, 428.625f, 424.6f, 0.7f)
+        assertEquals(12f, single.marginPt, 0f)
+    }
+
+    @Test
     fun suggestsMarginsForTheLaidOutPageWidth() {
         // A tablet on its side at 100%: each page of a spread gets its own margin.
         val spread = ViewGeometry.bookLayout(2560, 1504, 2f, 274f, 274f, 1f)
-        assertEquals(ViewGeometry.marginPt(spread.widthPt), spread.marginPt, 0f)
+        assertEquals(ViewGeometry.marginPt(spread.widthPt, ViewGeometry.BOOK_MAX_TEXT_WIDTH_PT), spread.marginPt, 0f)
         // A wide pageless view (1280 dp at 0.6 scale: 1600pt) gets wide margins.
         val pageless = ViewGeometry.layout(2560, 2f, 274f, 0.6f)
         assertEquals(425.197f, pageless.widthPt - 2 * pageless.marginPt, 0.01f)
