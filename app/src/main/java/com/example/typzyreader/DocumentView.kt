@@ -38,6 +38,9 @@ import kotlin.math.roundToInt
  * the index in [TypstDocument.sections] of the one being read (see [DocumentHtml.currentSection])
  * whenever the view settles on content. [onTap] gets taps that aren't part of a scroll or a long
  * press, and [onPageTurn] each step of a sideways scroll in the swiped modes.
+ *
+ * The document is hidden while it's [stale] (laid out for a size the view no longer has) and
+ * while new content is put in place; [onShowingChange] says when it's hidden or shown again.
  */
 @Composable
 fun DocumentView(
@@ -50,6 +53,8 @@ fun DocumentView(
     onCurrentSectionChange: (Int?) -> Unit = {},
     onTap: () -> Unit = {},
     onPageTurn: () -> Unit = {},
+    stale: Boolean = false,
+    onShowingChange: (Boolean) -> Unit = {},
 ) {
     val dark = isSystemInDarkTheme()
     // With the device-width viewport, 1 CSS px = 1 dp.
@@ -86,6 +91,8 @@ fun DocumentView(
             view.onScroll = onScroll
             view.onTap = onTap
             view.onPageTurn = onPageTurn
+            view.onShowingChange = onShowingChange
+            view.stale = stale
             view.onPositionChange = { position ->
                 val current = if (layout.mode.swiped) {
                     DocumentHtml.currentSectionOnScreen(document.sections, position.screen, layout.mode)
@@ -111,15 +118,16 @@ fun DocumentView(
                     reading.value = DocumentHtml.readingPosition(DocumentHtml.sectionBounds(document, layout, view.widthCssPx()), at)
                 }
             }
-            view.show(html, layout.mode.swiped) {
+            view.show(html) {
                 val bounds = DocumentHtml.sectionBounds(document, layout, view.widthCssPx())
                 val target = reading.value?.let { DocumentHtml.locate(bounds, it) } ?: 0f
                 if (layout.mode.swiped) {
                     // The page the place is on; the margin absorbs float error at page tops.
                     val page = (target + 0.001f).toInt().coerceIn(0, maxOf(0, document.pages.size - 1))
-                    RestoreTarget.Screen(DocumentHtml.screenOfPage(page, layout.mode))
+                    val screens = DocumentHtml.screens(document.pages.size, layout.mode).size
+                    RestoreTarget.Screen(DocumentHtml.screenOfPage(page, layout.mode), screens)
                 } else {
-                    RestoreTarget.Scroll(target)
+                    RestoreTarget.Scroll(target, bounds.end)
                 }
             }
         },
@@ -135,8 +143,14 @@ private const val SECTION_GAP_PX = 8f
  * How long, and how often, to wait after new content is drawn for the WebView to report its size,
  * before restoring the reader's place in it.
  */
-private const val RESTORE_ATTEMPTS = 30
+private const val RESTORE_ATTEMPTS = 60
 private const val RESTORE_RETRY_MS = 33L
+
+/**
+ * How much of the expected size the scroll range must reach for new content to count as laid
+ * out, allowing for rounding.
+ */
+private const val LAID_OUT_SHARE = 0.99f
 
 /**
  * How long, and how often, to check after restoring that the view stayed there: the WebView can
@@ -152,13 +166,16 @@ private const val VERIFY_INTERVAL_MS = 50L
  */
 private const val USER_SCROLL_WINDOW_MS = 3000L
 
-/** Where to put the view once new content is shown: a scroll position, or a screen of pages. */
+/**
+ * Where to put the view once new content is shown: a scroll position, or a screen of pages. Each
+ * also says how large the content is, so the view can tell when it's laid out.
+ */
 private sealed interface RestoreTarget {
-    /** CSS px from the top of the first page. */
-    class Scroll(val cssPx: Float) : RestoreTarget
+    /** [cssPx] from the top of the first page, in pages [contentCssPx] tall in all. */
+    class Scroll(val cssPx: Float, val contentCssPx: Float) : RestoreTarget
 
-    /** A screen of swiped pages (see [DocumentHtml.screens]). */
-    class Screen(val index: Int) : RestoreTarget
+    /** Screen [index] of [count] screens of swiped pages (see [DocumentHtml.screens]). */
+    class Screen(val index: Int, val count: Int) : RestoreTarget
 }
 
 private fun View.widthCssPx() = width / resources.displayMetrics.density
@@ -209,6 +226,29 @@ private class DocumentWebView(context: Context) : WebView(context) {
     /** Gets what's on screen after each scroll and once new content is shown. */
     var onPositionChange: (ViewPosition) -> Unit = {}
 
+    /** Gets whether the content is shown, or hidden while it's out of date or being put in place. */
+    var onShowingChange: (Boolean) -> Unit = {}
+
+    /** Whether the content is laid out for a size the view no longer has, so it's hidden. */
+    var stale = false
+        set(value) {
+            field = value
+            updateShowing()
+        }
+
+    /** Whether new content is loading or being scrolled to the reader's place, so it's hidden. */
+    private var settingUp = false
+    private var showing = true
+
+    private fun updateShowing() {
+        val shown = !stale && !settingUp
+        if (shown == showing) return
+        showing = shown
+        // Hidden rather than gone, so it still lays out and draws the content being set up.
+        alpha = if (shown) 1f else 0f
+        onShowingChange(shown)
+    }
+
     /**
      * Where [show], [jumpTo] or [turnTo] scrolls to; reaching it isn't reported to [onScroll] or
      * [onPageTurn].
@@ -244,6 +284,9 @@ private class DocumentWebView(context: Context) : WebView(context) {
 
     private fun touchedRecently() = SystemClock.uptimeMillis() - lastTouchMs < USER_SCROLL_WINDOW_MS
 
+    /** Whether the reader has touched the view since the current content started loading. */
+    private fun touchedSinceShown() = lastTouchMs > shownAtMs
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         lastTouchMs = SystemClock.uptimeMillis()
         taps.onTouchEvent(event) // only watches; the WebView still handles every event
@@ -256,36 +299,54 @@ private class DocumentWebView(context: Context) : WebView(context) {
     /** Whether new content is loading, and the reader's place not yet restored in it. */
     private var loading = false
 
+    /** When the current content started loading, in [SystemClock.uptimeMillis]. */
+    private var shownAtMs = 0L
+
     /**
-     * Shows [html], whose pages are [swiped] or scrolled, then puts the view where [restoreTo]
-     * says (asked only once the content is laid out, so it can measure the view as it is then).
+     * Shows [html], then puts the view where [restoreTo] says (asked once the content is drawn,
+     * so it can measure the view as it is then).
      */
-    fun show(html: String, swiped: Boolean, restoreTo: () -> RestoreTarget) {
+    fun show(html: String, restoreTo: () -> RestoreTarget) {
         if (html == shownHtml) return
         val load = ++loads
-        val before = scrollRange(swiped)
         loading = true
+        settingUp = true
+        updateShowing()
+        shownAtMs = SystemClock.uptimeMillis()
         shownHtml = html
         loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
         // Fires once the new content is drawn.
         postVisualStateCallback(0, object : VisualStateCallback() {
-            override fun onComplete(requestId: Long) = restore(load, swiped, before, restoreTo, RESTORE_ATTEMPTS)
+            override fun onComplete(requestId: Long) = restore(load, restoreTo, RESTORE_ATTEMPTS)
         })
     }
 
     /**
-     * Restores the reader's place once the view knows the new content's size, which it learns a
-     * little after the content is drawn: until then, its scroll range is still the old content's.
+     * Restores the reader's place once the new content is fully laid out, which the view learns
+     * a little after it's drawn: until then its scroll range is the old content's, or partial, and
+     * a scroll beyond it would be clamped (to the start, say).
      */
-    private fun restore(load: Int, swiped: Boolean, rangeBefore: Int, restoreTo: () -> RestoreTarget, attemptsLeft: Int) {
+    private fun restore(load: Int, restoreTo: () -> RestoreTarget, attemptsLeft: Int) {
         if (load != loads) return // other content has replaced it meanwhile
-        val sized = scrollRange(swiped) != rangeBefore && (!swiped || swiped())
-        if (!sized && attemptsLeft > 0) {
-            postDelayed({ restore(load, swiped, rangeBefore, restoreTo, attemptsLeft - 1) }, RESTORE_RETRY_MS)
+        val target = restoreTo()
+        val laidOut = when (target) {
+            is RestoreTarget.Scroll ->
+                computeVerticalScrollRange() >= target.contentCssPx * resources.displayMetrics.density * LAID_OUT_SHARE
+            is RestoreTarget.Screen -> width > 0 && computeHorizontalScrollRange() >= target.count * width * LAID_OUT_SHARE
+        }
+        if (!laidOut && attemptsLeft > 0) {
+            postDelayed({ restore(load, restoreTo, attemptsLeft - 1) }, RESTORE_RETRY_MS)
             return
         }
-        val target = restoreTo()
         moveTo(target)
+        // Shown once a frame at the reader's place is ready, not the first one at the top.
+        postVisualStateCallback(0, object : VisualStateCallback() {
+            override fun onComplete(requestId: Long) {
+                if (load != loads) return
+                settingUp = false
+                updateShowing()
+            }
+        })
         verify(load, target, VERIFY_CHECKS)
     }
 
@@ -295,7 +356,7 @@ private class DocumentWebView(context: Context) : WebView(context) {
      */
     private fun verify(load: Int, target: RestoreTarget, checksLeft: Int) {
         if (load != loads) return
-        if (!touchedRecently()) {
+        if (!touchedSinceShown()) {
             val (x, y) = scrollFor(target)
             if (scrollX != x || scrollY != y) moveTo(target)
             if (checksLeft > 0) {
@@ -317,11 +378,6 @@ private class DocumentWebView(context: Context) : WebView(context) {
         is RestoreTarget.Scroll -> 0 to scrollYFor(target.cssPx)
         is RestoreTarget.Screen -> scrollXFor(target.index) to 0
     }
-
-    private fun scrollRange(swiped: Boolean) = if (swiped) computeHorizontalScrollRange() else computeVerticalScrollRange()
-
-    /** Whether the content scrolls sideways a screen at a time, i.e. pages are swiped. */
-    private fun swiped() = width > 0 && computeHorizontalScrollRange() > width
 
     private fun reportPosition(byUser: Boolean) {
         if (contentHeight == 0) return
@@ -376,7 +432,8 @@ private class DocumentWebView(context: Context) : WebView(context) {
             onScroll(t - oldt)
             moved = true
         }
-        reportPosition(byUser = moved && touchedRecently())
+        // A touch before the content was replaced (e.g. a swipe just before rotating) isn't one.
+        reportPosition(byUser = moved && touchedRecently() && touchedSinceShown())
     }
 
     private class LinkOpeningClient : WebViewClient() {

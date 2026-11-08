@@ -196,6 +196,8 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     val barState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(barState)
     var documentScrolls by remember { mutableIntStateOf(0) }
+    // Whether the document view shows its document, rather than hiding it while it's set up.
+    var documentShowing by remember { mutableStateOf(true) }
     val barAnimation = remember { mutableStateOf<Job?>(null) }
     // Slides the toolbar fully in or out, as books do on taps and page turns.
     val showBar = { shown: Boolean ->
@@ -368,6 +370,9 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                         is ViewerContent.Document -> DocumentView(
                             document = shown.document,
                             layout = shown.layout,
+                            // Laid out for another size (or text size) until the recompile is done.
+                            stale = layout != null && layout != shown.layout,
+                            onShowingChange = { documentShowing = it },
                             // Books use the whole view; their toolbar shows over the pages on a tap.
                             topPadding = if (shown.book) 0.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
                             sectionJumps = sectionJumps,
@@ -390,6 +395,15 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                                     contentDescription = "Typst document"
                                     stateDescription = describe(shown, currentSection)
                                 },
+                        )
+                    }
+                    // In place of the document while it's hidden: being laid out for a new size,
+                    // or put back at the reader's place.
+                    if (content is ViewerContent.Document && !documentShowing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .semantics { contentDescription = "Laying out document" }
                         )
                     }
                 }
