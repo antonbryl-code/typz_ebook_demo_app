@@ -93,6 +93,16 @@ class TypzViewerTest {
         return file
     }
 
+    /**
+     * Shows the toolbar and the position bar, which start hidden over a document, with a tap on
+     * it (unless they're shown already, as a tap would hide them).
+     */
+    private fun showBars() {
+        if (compose.onNodeWithContentDescription("Book contents").isDisplayed()) return
+        compose.onNodeWithContentDescription("Typst document").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isDisplayed() }
+    }
+
     /** Waits until the document view describes its state as containing [text]. */
     private fun waitForDocument(text: String) {
         val matcher = SemanticsMatcher("document state contains \"$text\"") { node ->
@@ -168,8 +178,7 @@ class TypzViewerTest {
             .config[SemanticsProperties.StateDescription].substringBefore("pt wide")
 
         // Show the toolbar with a tap, and jump to Chapter 3.
-        compose.onNodeWithContentDescription("Typst document").performClick()
-        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isDisplayed() }
+        showBars()
         compose.onNodeWithContentDescription("Book contents").performClick()
         compose.onNodeWithText("Chapter 3").performClick()
         waitForDocument("; reading Chapter 3")
@@ -210,17 +219,12 @@ class TypzViewerTest {
             .config[SemanticsProperties.StateDescription]
         val before = state().substringBefore("pt wide")
 
-        // Books start with the toolbar hidden; a tap shows it.
-        if (book) compose.onNodeWithContentDescription("Typst document").performClick()
-        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isDisplayed() }
+        showBars()
         compose.onNodeWithContentDescription("Book contents").performClick()
         compose.onNodeWithText("Chapter 3").performClick()
         waitForDocument("; reading Chapter 3")
 
-        // The toolbar may have slid away with the jump; a tap (books) or nothing (pageless: the
-        // jump shows it) brings it back.
-        if (book) compose.onNodeWithContentDescription("Typst document").performClick()
-        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Menu").isDisplayed() }
+        showBars()
         compose.onNodeWithContentDescription("Menu").performClick()
         compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithContentDescription("Text size").performSemanticsAction(SemanticsActions.SetProgress) { it(110f) }
@@ -258,8 +262,7 @@ class TypzViewerTest {
         }
         waitForDocument("; reading Chapter 1")
         // Hidden with the toolbar; a tap shows both.
-        compose.onNodeWithContentDescription("Typst document").performClick()
-        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Position in document").isDisplayed() }
+        showBars()
         compose.onNodeWithText("Page 1 of", substring = true).assertIsDisplayed()
 
         compose.onNodeWithContentDescription("Position in document").performSemanticsAction(SemanticsActions.SetProgress) {
@@ -295,6 +298,7 @@ class TypzViewerTest {
         waitForDocument("1 page laid out")
         compose.onNodeWithText("MY BOOK").assertIsNotDisplayed()
 
+        showBars()
         compose.onNodeWithContentDescription("Book contents").performClick()
         compose.onNodeWithContentDescription("Book cover").assertIsDisplayed()
         compose.onNodeWithText("MY BOOK").assertIsDisplayed()
@@ -310,6 +314,7 @@ class TypzViewerTest {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         waitForDocument("2 pages laid out")
+        showBars()
         compose.onNodeWithContentDescription("Book contents").performClick()
         compose.onNodeWithText("Chapter Two").assertIsDisplayed().performClick()
         compose.waitForIdle()
@@ -331,12 +336,14 @@ class TypzViewerTest {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         waitForDocument("1 page laid out")
+        showBars() // straight away: a tap while the document is still being set up mustn't lose its place
         compose.onNodeWithContentDescription("Book contents").performClick()
         compose.waitUntil(timeoutMillis = 5_000) {
             compose.onAllNodes(hasText("Chapter One") and isSelected()).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("Chapter Two").assertIsNotSelected().performClick()
 
+        showBars()
         compose.onNodeWithContentDescription("Book contents").performClick()
         compose.waitUntil(timeoutMillis = 5_000) {
             compose.onAllNodes(hasText("Chapter Two") and isSelected()).fetchSemanticsNodes().isNotEmpty()
@@ -351,6 +358,7 @@ class TypzViewerTest {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
         waitForDocument("1 page laid out")
+        showBars()
         compose.onNodeWithContentDescription("Book contents").performClick()
         compose.onNodeWithText("VIEWER-TEST.TYPZ").assertIsDisplayed()
     }
@@ -376,6 +384,7 @@ class TypzViewerTest {
         }
         waitForDocument(laidOut(400))
 
+        showBars()
         compose.onNodeWithContentDescription("Menu").performClick()
         compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Text size: 70%").assertExists()
@@ -431,6 +440,21 @@ class TypzViewerTest {
     }
 
     @Test
+    fun pagelessDocumentsStartWithTheBarsHiddenAndATapTogglesThem() {
+        val uri = Uri.fromFile(writeTypz())
+        compose.setContent {
+            Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("1 page laid out")
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isNotDisplayed() }
+        compose.onNodeWithContentDescription("Typst document").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isDisplayed() }
+        compose.onNodeWithContentDescription("Position in document").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Typst document").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isNotDisplayed() }
+    }
+
+    @Test
     fun menuOffersOpenFileAndOpensSettings() {
         val uri = Uri.fromFile(writeTypz())
         compose.setContent {
@@ -439,6 +463,7 @@ class TypzViewerTest {
         waitForDocument("1 page laid out")
         compose.onNodeWithText("Open File").assertDoesNotExist()
 
+        showBars()
         compose.onNodeWithContentDescription("Menu").performClick()
         compose.onNodeWithText("Open File").assertExists()
         compose.onNodeWithText("Settings").performClick()
@@ -468,6 +493,7 @@ class TypzViewerTest {
         }
         waitForDocument("1 page laid out")
         compose.onNodeWithText("unknown font family", substring = true).assertDoesNotExist()
+        showBars()
         compose.onNodeWithContentDescription("Show warnings").performClick()
         compose.onNodeWithText("unknown font family: no such font", substring = true).assertExists()
     }

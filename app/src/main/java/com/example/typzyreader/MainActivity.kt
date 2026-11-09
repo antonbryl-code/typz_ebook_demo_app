@@ -126,9 +126,6 @@ private const val RESIZE_DEBOUNCE_MS = 150L
  */
 private const val COMPILED_LAYOUTS = 4
 
-/** How long after the last scroll step a half-hidden toolbar snaps fully in or out. */
-private const val BAR_SNAP_DELAY_MS = 150L
-
 /** The size of the cover in the book panel: its height, and at most the panel's usable width. */
 private val COVER_HEIGHT = 240.dp
 private val COVER_MAX_WIDTH = 312.dp
@@ -144,17 +141,14 @@ private sealed interface ViewerContent {
     data object Loading : ViewerContent
 
     /** [document] as compiled for [layout]. */
-    data class Document(val document: TypstDocument, val layout: ViewLayout) : ViewerContent {
-        /** Whether it's a book, with pages laid out for the view. */
-        val book: Boolean get() = layout.mode != PageMode.PAGELESS
-    }
+    data class Document(val document: TypstDocument, val layout: ViewLayout) : ViewerContent
 }
 
 /**
  * With no file open, a prompt to open one. Otherwise the document (or why it can't be shown),
- * under a toolbar with its title (or file name) and a menu. In pageless documents the toolbar
- * slides away while scrolling down and comes back when scrolling up; in books, which use the
- * whole view, it starts hidden, a tap shows or hides it, and turning or scrolling the pages hides it.
+ * under a toolbar with its title (or file name) and a menu, and over a bar showing the position.
+ * The document uses the whole view: the bars start hidden, a tap shows or hides them, and
+ * scrolling or turning the pages hides them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -197,7 +191,6 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     var showSettings by remember { mutableStateOf(false) }
     val barState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(barState)
-    var documentScrolls by remember { mutableIntStateOf(0) }
     // Whether the document view shows its document, rather than hiding it while it's set up.
     var documentShowing by remember { mutableStateOf(true) }
     // Where the view is in the document, for the bottom bar's slider, and the slider's moves.
@@ -301,25 +294,12 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     LaunchedEffect(showingDocument) {
         if (!showingDocument) barState.heightOffset = 0f
     }
-    // A book opens with the toolbar hidden, so it doesn't cover the first page; a tap shows it.
-    // Once per document: recompiling it (e.g. on rotation) leaves the toolbar as it was.
-    val showingBook = (content as? ViewerContent.Document)?.book == true
-    LaunchedEffect(uri, showingBook) {
-        if (!showingBook) return@LaunchedEffect
+    // A document opens with the bars hidden, so they don't cover its start; a tap shows them.
+    // Once per document: recompiling it (e.g. on rotation) leaves the bars as they were.
+    LaunchedEffect(uri, showingDocument) {
+        if (!showingDocument) return@LaunchedEffect
         // The limit is unknown until the toolbar has been measured.
         barState.heightOffset = snapshotFlow { barState.heightOffsetLimit }.first { it > -Float.MAX_VALUE }
-    }
-    // The WebView doesn't take part in Compose's nested scrolling, so the toolbar follows its
-    // scroll steps directly (see DocumentView), and snaps once they stop instead of on fling end.
-    LaunchedEffect(documentScrolls) {
-        if (documentScrolls == 0) return@LaunchedEffect
-        delay(BAR_SNAP_DELAY_MS)
-        val offset = barState.heightOffset
-        val limit = barState.heightOffsetLimit
-        if (offset < 0f && offset > limit) {
-            val target = if (offset < limit / 2) limit else 0f
-            animate(offset, target) { value, _ -> barState.heightOffset = value }
-        }
     }
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -341,9 +321,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                     sections = (content as? ViewerContent.Document)?.document?.sections.orEmpty(),
                     currentSection = currentSection,
                     onSectionClick = { section ->
-                        val book = (content as? ViewerContent.Document)?.layout?.mode != PageMode.PAGELESS
-                        // In pageless documents, the section lands just below the toolbar.
-                        if (book) showBar(false) else barState.heightOffset = 0f
+                        showBar(false) // the section lands at the top, where the toolbar would be
                         sectionJumps.tryEmit(section)
                         scope.launch { drawerState.close() }
                     },
@@ -380,26 +358,14 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                             // Laid out for another size (or text size) until the recompile is done.
                             stale = layout != null && layout != shown.layout,
                             onShowingChange = { documentShowing = it },
-                            // Books use the whole view; their toolbar shows over the pages on a tap.
-                            topPadding = if (shown.book) 0.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
+                            // The document uses the whole view; the bars show over it on a tap.
                             sectionJumps = sectionJumps,
                             onCurrentSectionChange = { currentSection = it },
-                            bottomPadding = if (shown.book) 0.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
                             onProgressChange = { progress = it },
                             slides = slides,
-                            onScroll = { dy ->
-                                if (sliding) return@DocumentView
-                                if (shown.book) {
-                                    showBar(false)
-                                } else {
-                                    barState.heightOffset -= dy // kept within the bar's height
-                                    documentScrolls++
-                                }
-                            },
-                            onTap = {
-                                if (shown.book) showBar(barState.heightOffset < barState.heightOffsetLimit / 2)
-                            },
-                            onPageTurn = { if (shown.book && !sliding) showBar(false) },
+                            onScroll = { if (!sliding) showBar(false) },
+                            onTap = { showBar(barState.heightOffset < barState.heightOffsetLimit / 2) },
+                            onPageTurn = { if (!sliding) showBar(false) },
                             modifier = Modifier
                                 .fillMaxSize()
                                 .semantics {

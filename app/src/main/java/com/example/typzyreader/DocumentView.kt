@@ -410,7 +410,20 @@ private class DocumentWebView(context: Context) : WebView(context) {
             }
         }
         loading = false
-        reportPosition(byUser = false) // also if that didn't scroll
+        reportOnceMeasured(load) // also if that didn't scroll
+    }
+
+    /**
+     * Reports the position once the WebView has measured the content: a touch can end [verify]
+     * before it has, and nothing else reports until the view scrolls.
+     */
+    private fun reportOnceMeasured(load: Int) {
+        if (load != loads) return
+        if (contentHeight == 0) {
+            postDelayed({ reportOnceMeasured(load) }, RESTORE_RETRY_MS)
+            return
+        }
+        reportPosition(byUser = false)
     }
 
     private fun moveTo(target: RestoreTarget) = when (target) {
