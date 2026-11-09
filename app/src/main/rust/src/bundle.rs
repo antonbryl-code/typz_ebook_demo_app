@@ -5,13 +5,15 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+use comemo::Track;
 use typst::diag::{FileError, FileResult, SourceDiagnostic};
-use typst::foundations::{Bytes, Datetime, Duration, NativeElement, StyleChain};
-use typst::introspection::Introspector;
+use typst::engine::{Engine, Route, Sink, Traced};
+use typst::foundations::{Bytes, Datetime, Duration, NativeElement, Packed, StyleChain};
+use typst::introspection::{Counter, Introspector, Location};
 use typst::model::{Document, HeadingElem};
 use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
-use typst::utils::LazyHash;
+use typst::utils::{LazyHash, Protected};
 use typst::{Library, LibraryExt, World, WorldExt};
 use typst_kit::datetime::Time;
 use typst_kit::files::{FileLoader, FileStore};
@@ -66,11 +68,23 @@ pub struct Rendered {
 
 /// A top-level section of a document: its name and where it starts.
 pub struct Section {
+    /// Its heading as plain text, after its number if it has one (e.g. "2.1 Results").
     pub name: String,
     /// The index of its page.
     pub page: usize,
     /// How far down that page it starts, in points.
     pub y: f64,
+}
+
+/// The number of [heading] as the document numbers it (e.g. "2.1" or "Chapter II"), as plain text;
+/// None if it isn't numbered. Like an outline's, so counter updates and numbering functions count.
+fn heading_number(engine: &mut Engine, heading: &Packed<HeadingElem>, location: Location) -> Option<String> {
+    let numbering = heading.numbering.get_ref(StyleChain::default()).as_ref()?;
+    let styles = StyleChain::new(&engine.library.styles);
+    let number = Counter::of(HeadingElem::ELEM)
+        .display_at(engine, location, styles, numbering, heading.span())
+        .ok()?;
+    Some(number.plain_text().to_string())
 }
 
 /// A page as a standalone SVG, sized in points (`width="..pt"` with a matching viewBox), and
@@ -211,6 +225,18 @@ impl Bundle {
             .filter(|title| !title.is_empty())
             .map(str::to_owned);
         let introspector = document.introspector();
+        // To format heading numbers as the document does (outside the compile that made it).
+        let world: &dyn World = &*self;
+        let traced = Traced::default();
+        let mut sink = Sink::new();
+        let mut engine = Engine {
+            library: world.library(),
+            world: world.track(),
+            introspector: Protected::new((&**introspector as &dyn Introspector).track()),
+            traced: traced.track(),
+            sink: sink.track_mut(),
+            route: Route::default(),
+        };
         let sections = introspector
             .query(&HeadingElem::ELEM.select())
             .iter()
@@ -221,11 +247,15 @@ impl Bundle {
                 if !top_level {
                     return None;
                 }
-                let name = heading.body.plain_text().split_whitespace().collect::<Vec<_>>().join(" ");
-                if name.is_empty() {
+                let title = heading.body.plain_text();
+                if title.trim().is_empty() {
                     return None;
                 }
-                let position = introspector.position(content.location()?)?;
+                let location = content.location()?;
+                let number = heading_number(&mut engine, heading, location).unwrap_or_default();
+                // A line break (e.g. between the number and the title) reads as a space.
+                let name = format!("{number} {title}").split_whitespace().collect::<Vec<_>>().join(" ");
+                let position = introspector.position(location)?;
                 Some(Section { name, page: position.page.get() - 1, y: position.point.y.to_pt() })
             })
             .collect();

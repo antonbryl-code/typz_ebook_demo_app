@@ -20,6 +20,8 @@ flate2 = { version = "1", features = ["zlib-rs"] }
 tar = "0.4.46"
 # Same version as Typst's, for reading the typst.toml manifest of .typz files.
 toml = "0.8.23"
+# Same version as Typst's, for tracking what formatting heading numbers after a compile reads.
+comemo = "0.5.1"
 
 [build-dependencies]
 typst-assets = { version = "0.15.1", features = ["fonts"] }

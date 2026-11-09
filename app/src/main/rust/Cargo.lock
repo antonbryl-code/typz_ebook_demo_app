@@ -2648,6 +2648,7 @@ dependencies = [
 name = "typzyreader"
 version = "0.1.0"
 dependencies = [
+ "comemo",
  "flate2",
  "jni",
  "tar",

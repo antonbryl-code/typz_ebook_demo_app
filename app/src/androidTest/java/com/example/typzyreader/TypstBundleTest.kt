@@ -134,6 +134,29 @@ class TypstBundleTest {
     }
 
     @Test
+    fun numbersSectionsAsTheDocumentDoes() {
+        val document = compileDocument(
+            "main.typ" to """
+                #set heading(numbering: "1.")
+                = One
+                == Sub
+                = Two
+                #counter(heading).update(6)
+                = Seven
+                #heading(numbering: none)[Unnumbered]
+                #set heading(numbering: "I")
+                = Roman
+                #set heading(numbering: n => [Chapter #n \ ])
+                = Broken
+            """.trimIndent()
+        )
+        assertEquals(
+            listOf("1. One", "2. Two", "7. Seven", "Unnumbered", "VIII Roman", "Chapter 9 Broken"),
+            document.sections.map { it.name },
+        )
+    }
+
+    @Test
     fun reportsWhereSectionsStart() {
         val sections = compileDocument(
             "main.typ" to "#set page(margin: 20pt)\n= One\nText\n= Two\n#pagebreak()\n= Three"
