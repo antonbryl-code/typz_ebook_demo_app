@@ -1,1 +1,3 @@
 /build
+# Cargo's output when it's run directly rather than through Gradle
+/src/main/rust/target
