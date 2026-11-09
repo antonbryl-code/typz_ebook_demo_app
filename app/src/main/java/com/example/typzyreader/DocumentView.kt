@@ -362,17 +362,22 @@ private class DocumentWebView(context: Context) : WebView(context) {
     }
 
     /**
-     * Restores the reader's place once the new content is fully laid out, which the view learns
-     * a little after it's drawn: until then its scroll range is the old content's, or partial, and
-     * a scroll beyond it would be clamped (to the start, say).
+     * Restores the reader's place once the new content is laid out up to it, which the view learns
+     * a little after it's drawn (or later still for a big document, which it reads bit by bit):
+     * until then its scroll range is the old content's, or partial, and a scroll beyond it would
+     * be clamped (to the start, say).
      */
     private fun restore(load: Int, restoreTo: () -> RestoreTarget, attemptsLeft: Int) {
         if (load != loads) return // other content has replaced it meanwhile
         val target = restoreTo()
+        // Laid out as far as the reader's place (and a screen beyond it): the rest can follow.
         val laidOut = when (target) {
-            is RestoreTarget.Scroll ->
-                computeVerticalScrollRange() >= target.contentCssPx * resources.displayMetrics.density * LAID_OUT_SHARE
-            is RestoreTarget.Screen -> width > 0 && computeHorizontalScrollRange() >= target.count * width * LAID_OUT_SHARE
+            is RestoreTarget.Scroll -> {
+                val neededCssPx = minOf(target.contentCssPx, target.cssPx + height / resources.displayMetrics.density)
+                computeVerticalScrollRange() >= neededCssPx * resources.displayMetrics.density * LAID_OUT_SHARE
+            }
+            is RestoreTarget.Screen ->
+                width > 0 && computeHorizontalScrollRange() >= minOf(target.count, target.index + 1) * width * LAID_OUT_SHARE
         }
         if (!laidOut && attemptsLeft > 0) {
             postDelayed({ restore(load, restoreTo, attemptsLeft - 1) }, RESTORE_RETRY_MS)

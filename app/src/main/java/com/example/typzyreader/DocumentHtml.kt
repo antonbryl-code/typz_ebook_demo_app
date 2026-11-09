@@ -48,6 +48,12 @@ object DocumentHtml {
     private const val TOOTH_DEPTH_PX = 5
     private const val TOOTH_PITCH_PX = 10
 
+    /**
+     * Pages with SVGs up to this long (in chars) are shown as images; larger ones inline, as
+     * WebViews may refuse very long `data:` URLs. A page rarely comes near it.
+     */
+    private const val MAX_IMAGE_SVG_CHARS = 1_500_000
+
     /** Space between the pages of a book in [PageMode.SCROLLED], in CSS px. */
     const val BOOK_PAGE_GAP_PX = 12
 
@@ -195,7 +201,7 @@ object DocumentHtml {
         append(
             """
               .page { background: white; position: relative; container-type: inline-size; }
-              .page > svg { display: block; width: 100%; height: 100%; }
+              .page > svg, .page > img.svg { display: block; width: 100%; height: 100%; }
               /* The invisible, selectable text layer over each page (see text_layer.rs). Its
                  lengths are in --u, one Typst point at the page's current size. */
               .t {
@@ -229,10 +235,40 @@ object DocumentHtml {
         append("; --u: calc(100cqw / ")
         append(css(page.widthPt))
         append(")\">")
-        append(page.svg)
+        if (page.svg.length <= MAX_IMAGE_SVG_CHARS) {
+            // As an image, a page's SVG is only read when it's about to be seen, so the WebView
+            // lays out a long document at once. Its links are in the text layer anyway.
+            append("<img class=\"svg\" alt=\"\" loading=\"lazy\" decoding=\"async\" src=\"data:image/svg+xml,")
+            appendDataUrlEncoded(page.svg)
+            append("\">")
+        } else {
+            append(page.svg)
+        }
         append("<div class=\"t\">")
         append(page.textLayer)
         append("</div></div>")
+    }
+
+    /**
+     * Appends [text] for a `data:` URL in a double-quoted HTML attribute: escapes what would end
+     * the attribute, start a character reference or a fragment, or be dropped from URLs (line
+     * breaks, which can separate SVG attributes), and the escape character itself.
+     */
+    internal fun StringBuilder.appendDataUrlEncoded(text: String) {
+        for (c in text) {
+            when (c) {
+                '%' -> append("%25")
+                '#' -> append("%23")
+                '"' -> append("%22")
+                '&' -> append("%26")
+                '<' -> append("%3C")
+                '>' -> append("%3E")
+                '\n' -> append("%0A")
+                '\r' -> append("%0D")
+                '\t' -> append("%09")
+                else -> append(c)
+            }
+        }
     }
 
     private fun background(dark: Boolean) = if (dark) "#202124" else "#e8e8e8"

@@ -13,7 +13,7 @@ class DocumentHtmlTest {
     fun stacksPagesInOrder() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(300f, 60f, "b")), ""), dark = false)
         assertEquals(2, Regex("<div class=\"page\"").findAll(html).count())
-        assertTrue(html.indexOf("id=\"a\"") < html.indexOf("id=\"b\""))
+        assertTrue(html.indexOf("id=%22a%22") < html.indexOf("id=%22b%22"))
     }
 
     @Test
@@ -129,7 +129,7 @@ class DocumentHtmlTest {
         assertEquals(2, Regex("<div class=\"spread\">").findAll(html).count())
         // The first spread has a blank slot on the left, then page a.
         assertTrue(html, html.contains("<div class=\"spread\"><div class=\"slot\"></div><div class=\"slot\"><div class=\"page\""))
-        assertTrue(html.indexOf("id=\"a\"") < html.indexOf("id=\"b\"") && html.indexOf("id=\"b\"") < html.indexOf("id=\"c\""))
+        assertTrue(html.indexOf("id=%22a%22") < html.indexOf("id=%22b%22") && html.indexOf("id=%22b%22") < html.indexOf("id=%22c%22"))
         // Pages as large as fits their slot.
         assertTrue(html, html.contains("width: min(100%, calc(100vh * 300.000 / 600.000)); aspect-ratio: 300.000 / 600.000"))
     }
@@ -143,6 +143,30 @@ class DocumentHtmlTest {
         // Sections below the first page are lower by the gap above them.
         val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f, PageMode.SCROLLED)
         assertEquals(424f * 4 / 3 + 12f + 40f, top, 0.01f)
+    }
+
+    @Test
+    fun showsPagesAsLazyImages() {
+        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a")), ""), dark = false)
+        assertTrue(html, html.contains(
+            "<img class=\"svg\" alt=\"\" loading=\"lazy\" decoding=\"async\" " +
+                "src=\"data:image/svg+xml,%3Csvg id=%22a%22 width=%22300.0pt%22%3E%3C/svg%3E\">"
+        ))
+        assertFalse(html, html.contains("<svg id="))
+    }
+
+    @Test
+    fun encodesSvgForADataUrlAttribute() {
+        val encoded = with(DocumentHtml) { StringBuilder().apply { appendDataUrlEncoded("<a b=\"x&y\">#1 50%\n\t</a>") }.toString() }
+        assertEquals("%3Ca b=%22x%26y%22%3E%231 50%25%0A%09%3C/a%3E", encoded)
+    }
+
+    @Test
+    fun keepsHugePagesInline() {
+        val huge = TypstPage("<svg id=\"big\">" + "x".repeat(1_500_001) + "</svg>", "", 300f, 40f)
+        val html = DocumentHtml.build(TypstDocument(listOf(huge), ""), dark = false)
+        assertTrue(html.contains("<svg id=\"big\">"))
+        assertFalse(html.contains("data:image/svg+xml"))
     }
 
     @Test
@@ -265,8 +289,8 @@ class DocumentHtmlTest {
     fun laysTextLayerOverEachPage() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 41.5f, "a")), ""), dark = false)
         // After the SVG, inside the page, with the page's point unit for its lengths.
-        assertTrue(html, html.contains("--u: calc(100cqw / 300.000)\"><svg id=\"a\""))
-        assertTrue(html, html.contains("</svg><div class=\"t\"><div class=\"l\">a</div></div></div>"))
+        assertTrue(html, html.contains("--u: calc(100cqw / 300.000)\"><img class=\"svg\" alt=\"\" loading=\"lazy\""))
+        assertTrue(html, html.contains("%3C/svg%3E\"><div class=\"t\"><div class=\"l\">a</div></div></div>"))
     }
 
     @Test
