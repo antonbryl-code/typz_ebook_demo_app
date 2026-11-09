@@ -189,6 +189,59 @@ class TypzViewerTest {
         }
     }
 
+    /**
+     * Opens a four-chapter document (a book, or pageless), jumps to Chapter 3, changes the text
+     * size in the settings, and expects the reader still in Chapter 3 at the new size.
+     */
+    private fun assertTextSizeChangeKeepsThePlace(book: Boolean) {
+        val chapters = (1..4).joinToString("\n") { "#pagebreak(weak: true)\n= Chapter $it\n#lorem(500)" }
+        val setup = if (book) {
+            """#set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")), margin: eval(sys.inputs.at("ebook-margin")))"""
+        } else {
+            """#set page(width: eval(sys.inputs.at("ebook-width")), height: auto, margin: eval(sys.inputs.at("ebook-margin")))"""
+        }
+        val manifest = if (book) "[tool.typzy-reader]\nformat = \"book\"\n" else ""
+        val uri = Uri.fromFile(writeTypz(mainTyp = setup + "\n" + chapters, manifestExtra = manifest))
+        compose.setContent {
+            Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
+        }
+        waitForDocument("; reading Chapter 1")
+        fun state() = compose.onNodeWithContentDescription("Typst document").fetchSemanticsNode()
+            .config[SemanticsProperties.StateDescription]
+        val before = state().substringBefore("pt wide")
+
+        // Books start with the toolbar hidden; a tap shows it.
+        if (book) compose.onNodeWithContentDescription("Typst document").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Book contents").isDisplayed() }
+        compose.onNodeWithContentDescription("Book contents").performClick()
+        compose.onNodeWithText("Chapter 3").performClick()
+        waitForDocument("; reading Chapter 3")
+
+        // The toolbar may have slid away with the jump; a tap (books) or nothing (pageless: the
+        // jump shows it) brings it back.
+        if (book) compose.onNodeWithContentDescription("Typst document").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onNodeWithContentDescription("Menu").isDisplayed() }
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithContentDescription("Text size").performSemanticsAction(SemanticsActions.SetProgress) { it(110f) }
+        compose.onNodeWithText("Close").performClick()
+
+        compose.waitUntil(timeoutMillis = 20_000) {
+            val state = state()
+            !state.startsWith(before) && state.endsWith("; reading Chapter 3")
+        }
+    }
+
+    @Test
+    fun keepsTheReadersPlaceWhenTheTextSizeChangesInABook() {
+        assertTextSizeChangeKeepsThePlace(book = true)
+    }
+
+    @Test
+    fun keepsTheReadersPlaceWhenTheTextSizeChangesInAPagelessDocument() {
+        assertTextSizeChangeKeepsThePlace(book = false)
+    }
+
     @Test
     fun turnsBookPagesWithTheBottomSlider() {
         val chapters = (1..4).joinToString("\n") { "#pagebreak(weak: true)\n= Chapter $it\n#lorem(300)" }
