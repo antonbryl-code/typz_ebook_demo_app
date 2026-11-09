@@ -11,13 +11,15 @@ internal object TypstNative {
 
     /**
      * Copies the files into a native bundle and returns its handle; free it with [closeBundle].
-     * Downloaded packages are kept in [packageCache]; null allows only bundled packages.
+     * Downloaded packages are kept in [packageCache]; null allows only bundled packages. [fonts]
+     * are font files only this bundle uses, besides Typst's and the device's.
      */
     external fun openBundle(
         paths: Array<String>,
         contents: Array<ByteArray>,
         entrypoint: String,
         packageCache: String?,
+        fonts: Array<ByteArray>,
     ): Long
     external fun closeBundle(handle: Long)
     /**
@@ -36,6 +38,13 @@ internal object TypstNative {
      * Throws [TypzFormatException] if the manifest is malformed.
      */
     external fun manifestCoverImg(manifest: ByteArray): String?
+    /**
+     * The `required-fonts` in the `[tool.typzy-reader]` section of a typst.toml: font family
+     * names, as written. Throws [TypzFormatException] if the manifest is malformed.
+     */
+    external fun manifestRequiredFonts(manifest: ByteArray): Array<String>
+    /** Whether Typst's own fonts or the device's include [family]. The first call takes a moment. */
+    external fun hasFontFamily(family: String): Boolean
     external fun bundleEntrypoint(handle: Long): String
     external fun bundleFileCount(handle: Long): Int
     /** Size in bytes of the file at [path], or -1 if the bundle has no such file. */

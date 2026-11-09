@@ -2,6 +2,8 @@ package com.example.typzyreader
 
 import android.content.Context
 import android.net.Uri
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -21,7 +23,7 @@ import androidx.compose.ui.test.isNotDisplayed
 import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.StateRestorationTester
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -42,13 +44,22 @@ import java.util.zip.ZipOutputStream
 @RunWith(AndroidJUnit4::class)
 class TypzViewerTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Before
     fun resetSettings() {
         context.getSharedPreferences(ReaderSettings.FILE_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+    }
+
+    /**
+     * Keeps the screen on while the test's window shows, as a reader would by touching it: the
+     * tests take longer than a short screen timeout, and they fail once the screen goes off.
+     */
+    @Before
+    fun keepScreenOn() {
+        compose.activityRule.scenario.onActivity { it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     /** How a one-page document describes itself laid out in a view [dp] wide at a text size. */

@@ -126,12 +126,13 @@ class TypstBundle private constructor(
         /**
          * Copies [contents] into native memory. Packages downloaded during [compile] are kept in
          * [packageCache] (and found there by later bundles); without it, only packages bundled
-         * under `packages/<namespace>/<name>/<version>/` are available.
+         * under `packages/<namespace>/<name>/<version>/` are available. [fonts] are font files the
+         * document can use besides Typst's and the device's, e.g. its required fonts.
          */
-        fun open(contents: TypzContents, packageCache: File? = null): TypstBundle {
+        fun open(contents: TypzContents, packageCache: File? = null, fonts: List<ByteArray> = emptyList()): TypstBundle {
             val paths = contents.files.keys.toTypedArray()
             val data = Array(paths.size) { contents.files.getValue(paths[it]) }
-            val handle = TypstNative.openBundle(paths, data, contents.entrypoint, packageCache?.path)
+            val handle = TypstNative.openBundle(paths, data, contents.entrypoint, packageCache?.path, fonts.toTypedArray())
             return TypstBundle(handle, packageCache, contents.coverImage)
         }
     }

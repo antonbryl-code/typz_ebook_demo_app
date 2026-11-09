@@ -727,10 +727,26 @@ private fun formatOf(context: Context, uri: Uri): String = try {
 private fun openBundle(context: Context, uri: Uri): TypstBundle {
     val stream = context.contentResolver.openInputStream(uri)
         ?: throw IOException("Cannot open $uri")
-    // Packages are re-downloadable, so the cache directory (which Android may clear) suits them.
+    val contents = stream.use { TypzArchive.read(it) }
+    // Packages and fonts are re-downloadable, so the cache directory (which Android may clear) suits them.
     val packageCache = File(context.cacheDir, "typst-packages")
-    return TypstBundle.open(stream.use { TypzArchive.read(it) }, packageCache)
+    return TypstBundle.open(contents, packageCache, requiredFonts(contents, GoogleFonts(File(context.cacheDir, "google-fonts"))))
 }
+
+/**
+ * The font files of the families [contents] requires that the device lacks, from [fonts]. One that
+ * can't be had is left out: the document still opens, and Typst warns about the missing family.
+ */
+private fun requiredFonts(contents: TypzContents, fonts: GoogleFonts): List<ByteArray> =
+    contents.requiredFonts
+        .filterNot(TypstNative::hasFontFamily)
+        .flatMap { family ->
+            try {
+                fonts.fetch(family)
+            } catch (_: IOException) {
+                emptyList() // e.g. offline
+            }
+        }
 
 private fun compile(bundle: TypstBundle, layout: ViewLayout): ViewerContent = try {
     ViewerContent.Document(

@@ -95,6 +95,14 @@ class TypzManifestTest {
     }
 
     @Test
+    fun readsRequiredFonts() {
+        val project = "[project]\nentrypoint = \"main.typ\"\n"
+        val listed = read(project + "[tool.typzy-reader]\nrequired-fonts = [\"Inter\", \"Noto Serif\", \"Inter\", 3]", "main.typ" to "")
+        assertEquals(listOf("Inter", "Noto Serif"), listed.requiredFonts)
+        assertEquals(emptyList<String>(), read(project, "main.typ" to "").requiredFonts)
+    }
+
+    @Test
     fun readsCoverImageNamedByManifest() {
         val contents = read(
             "[project]\nentrypoint = \"main.typ\"\n[tool.typzy-reader]\ncover-img = \"./images/cover.png\"\n",

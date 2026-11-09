@@ -8,6 +8,7 @@
 //! [tool.typzy-reader]
 //! format = "pageless"
 //! cover-img = "images/cover.png"
+//! required-fonts = ["Inter", "Noto Serif"]
 //! ```
 
 use toml::{Table, Value};
@@ -56,6 +57,22 @@ pub fn cover_img(manifest: &[u8]) -> Result<Option<String>, String> {
         .filter(|path| !path.is_empty()))
 }
 
+/// The `required-fonts` of the manifest's `[tool.typzy-reader]` section: font family names, as
+/// written there (and so as Google Fonts spells them), without blanks or repeats. Values that
+/// aren't strings are left out.
+pub fn required_fonts(manifest: &[u8]) -> Result<Vec<String>, String> {
+    let table = parse(manifest)?;
+    let mut fonts: Vec<String> = Vec::new();
+    for value in tool_field(&table, "required-fonts").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(name) = value.as_str().map(str::trim).filter(|name| !name.is_empty()) {
+            if !fonts.iter().any(|font| font == name) {
+                fonts.push(name.to_owned());
+            }
+        }
+    }
+    Ok(fonts)
+}
+
 /// A field of the `[tool.typzy-reader]` section, if there is one.
 fn tool_field<'a>(table: &'a Table, name: &str) -> Option<&'a Value> {
     table
@@ -73,7 +90,7 @@ fn parse(manifest: &[u8]) -> Result<Table, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cover_img, entrypoint, format};
+    use super::{cover_img, entrypoint, format, required_fonts};
 
     #[test]
     fn reads_project_entrypoint() {
@@ -119,6 +136,14 @@ mod tests {
     #[test]
     fn shows_other_format_values_as_toml() {
         assert_eq!(format(b"[tool.typzy-reader]\nformat = 3"), Ok("3".into()));
+    }
+
+    #[test]
+    fn reads_required_fonts() {
+        let manifest = b"[tool.typzy-reader]\nrequired-fonts = [\"Inter\", \" Noto Serif \", 3, \"\", \"Inter\"]";
+        assert_eq!(required_fonts(manifest), Ok(vec!["Inter".to_owned(), "Noto Serif".to_owned()]));
+        assert_eq!(required_fonts(b"[project]\nentrypoint = \"a.typ\""), Ok(vec![]));
+        assert_eq!(required_fonts(b"[tool.typzy-reader]\nrequired-fonts = \"Inter\""), Ok(vec![]));
     }
 
     #[test]

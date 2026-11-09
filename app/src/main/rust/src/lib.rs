@@ -15,7 +15,7 @@ use std::path::PathBuf;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use jni::objects::{JByteArray, JObject, JObjectArray, JString};
-use jni::sys::{jfloat, jint, jlong, jobjectArray, jsize, jstring};
+use jni::sys::{jboolean, jfloat, jint, jlong, jobjectArray, jsize, jstring};
 use jni::JNIEnv;
 
 use bundle::{Bundle, CompileFailure};
@@ -106,6 +106,7 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_openBundle<'loca
     contents: JObjectArray<'local>,
     entrypoint: JString<'local>,
     package_cache: JString<'local>,
+    fonts: JObjectArray<'local>,
 ) -> jlong {
     guard(&mut env, 0, |env| {
         let count = env.get_array_length(&paths)?;
@@ -125,7 +126,13 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_openBundle<'loca
         }
         let entrypoint: String = env.get_string(&entrypoint)?.into();
         let package_cache = optional_string(env, &package_cache)?.map(PathBuf::from);
-        let bundle = Bundle::new(entrypoint, files, package_cache)?;
+        let mut font_files = Vec::new();
+        for i in 0..env.get_array_length(&fonts)? {
+            let data_ref = JByteArray::from(env.get_object_array_element(&fonts, i)?);
+            font_files.push(env.convert_byte_array(&data_ref)?);
+            env.delete_local_ref(data_ref)?;
+        }
+        let bundle = Bundle::new(entrypoint, files, package_cache, font_files)?;
         Ok(Box::into_raw(Box::new(bundle)) as jlong)
     })
 }
@@ -181,6 +188,41 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestCoverImg
             Some(path) => Ok(env.new_string(path)?.into_raw()),
             None => Ok(std::ptr::null_mut()),
         }
+    })
+}
+
+/// `TypstNative.manifestRequiredFonts(manifest)`: the font families a `typst.toml` lists as
+/// required (see [`manifest`]). Throws TypzFormatException if the manifest is malformed.
+#[no_mangle]
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestRequiredFonts<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    manifest: JByteArray<'local>,
+) -> jobjectArray {
+    guard(&mut env, std::ptr::null_mut(), |env| {
+        let manifest = env.convert_byte_array(&manifest)?;
+        let fonts = manifest::required_fonts(&manifest).map_err(|e| Error::new(FORMAT_EXCEPTION, e))?;
+        let array = env.new_object_array(fonts.len() as jsize, "java/lang/String", JObject::null())?;
+        for (i, font) in fonts.iter().enumerate() {
+            let font = env.new_string(font)?;
+            env.set_object_array_element(&array, i as jsize, &font)?;
+            env.delete_local_ref(font)?;
+        }
+        Ok(array.into_raw())
+    })
+}
+
+/// `TypstNative.hasFontFamily(family)`: whether Typst's own fonts or the device's include it.
+/// The first call scans the device's fonts, which takes a moment.
+#[no_mangle]
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_hasFontFamily<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    family: JString<'local>,
+) -> jboolean {
+    guard(&mut env, 0, |env| {
+        let family: String = env.get_string(&family)?.into();
+        Ok(bundle::has_font_family(&family) as jboolean)
     })
 }
 

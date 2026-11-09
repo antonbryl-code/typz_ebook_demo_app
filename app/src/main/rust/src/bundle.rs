@@ -33,10 +33,21 @@ static FONTS: LazyLock<FontStore> = LazyLock::new(|| {
     store
 });
 
+/// Whether the fonts every bundle can use (Typst's own and the device's) include [`family`].
+pub fn has_font_family(family: &str) -> bool {
+    FONTS.book().select_family(&family.to_lowercase()).next().is_some()
+}
+
 pub struct Bundle {
     entrypoint: String,
     main: FileId,
     files: FileStore<BundleFiles>,
+    /// Fonts only this bundle uses (e.g. downloaded for it), after the shared [`FONTS`].
+    extra_fonts: Vec<Font>,
+    /// [`FONTS`]'s book followed by [`Self::extra_fonts`]; None when there are none.
+    font_book: Option<LazyHash<FontBook>>,
+    /// How many fonts [`FONTS`] has, i.e. the index of the first extra font.
+    shared_font_count: usize,
     time: Time,
     /// Carries `geometry` in `sys.inputs`; rebuilt when a compile offers different geometry.
     library: LazyHash<Library>,
@@ -103,11 +114,13 @@ impl FileLoader for BundleFiles {
 impl Bundle {
     /// `files` is keyed by the path inside the zip; `entrypoint` must be one of those paths.
     /// `package_cache` is where downloaded packages are kept; without it, only packages
-    /// bundled under `packages/` are available.
+    /// bundled under `packages/` are available. `fonts` are font files only this bundle can use,
+    /// in addition to Typst's and the device's; ones that can't be read are skipped.
     pub fn new(
         entrypoint: String,
         files: HashMap<String, Vec<u8>>,
         package_cache: Option<PathBuf>,
+        fonts: Vec<Vec<u8>>,
     ) -> Result<Self, String> {
         let mut normalized = HashMap::with_capacity(files.len());
         for (path, data) in files {
@@ -122,10 +135,21 @@ impl Bundle {
             return Err(format!("Entrypoint {entrypoint} not found in the .typz file"));
         }
         let packages = Packages::new(normalized.keys().map(String::as_str), package_cache);
+        let extra_fonts: Vec<Font> = fonts.into_iter().flat_map(|data| Font::iter(Bytes::new(data))).collect();
+        let shared = FONTS.book();
+        let shared_font_count = (0..).take_while(|&i| shared.info(i).is_some()).count();
+        let font_book = (!extra_fonts.is_empty()).then(|| {
+            let shared_infos = (0..shared_font_count).filter_map(|i| shared.info(i).cloned());
+            let extra_infos = extra_fonts.iter().map(|font| font.info().clone());
+            LazyHash::new(FontBook::from_infos(shared_infos.chain(extra_infos)))
+        });
         Ok(Self {
             entrypoint,
             main: RootedPath::new(VirtualRoot::Project, main_path).intern(),
             files: FileStore::new(BundleFiles { files: normalized, packages }),
+            extra_fonts,
+            font_book,
+            shared_font_count,
             time: Time::system(),
             library: LazyHash::new(Library::default()),
             geometry: None,
@@ -249,7 +273,7 @@ impl World for Bundle {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        FONTS.book()
+        self.font_book.as_ref().unwrap_or_else(|| FONTS.book())
     }
 
     fn main(&self) -> FileId {
@@ -265,7 +289,10 @@ impl World for Bundle {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        FONTS.font(index)
+        match index.checked_sub(self.shared_font_count) {
+            Some(extra) => self.extra_fonts.get(extra).cloned(),
+            None => FONTS.font(index),
+        }
     }
 
     fn today(&self, offset: Option<Duration>) -> Option<Datetime> {

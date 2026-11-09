@@ -25,7 +25,13 @@ enum class TypzFormat(val value: String) {
  * Every file of a .typz keyed by its path inside the zip, plus the entrypoint to compile and the
  * path of the cover image, if the manifest names one.
  */
-class TypzContents(val entrypoint: String, val files: Map<String, ByteArray>, val coverImg: String? = null) {
+class TypzContents(
+    val entrypoint: String,
+    val files: Map<String, ByteArray>,
+    val coverImg: String? = null,
+    /** Font families the manifest says the document needs, to be fetched if the device lacks them. */
+    val requiredFonts: List<String> = emptyList(),
+) {
     /**
      * The undecoded cover image. Null if the book has none of its own, or the file named by the
      * manifest isn't in the .typz, either of which calls for [R.drawable.default_cover].
@@ -36,8 +42,8 @@ class TypzContents(val entrypoint: String, val files: Map<String, ByteArray>, va
 /**
  * Reader for .typz files: zip archives with the Typst sources at their root (and in
  * subfolders), and a typst.toml manifest there whose `[project]` section names the
- * `entrypoint` to compile, and whose optional `[tool.typzy-reader]` section the `format` and
- * the `cover-img`.
+ * `entrypoint` to compile, and whose optional `[tool.typzy-reader]` section the `format`, the
+ * `cover-img` and the `required-fonts`.
  */
 object TypzArchive {
     const val MANIFEST_PATH = "typst.toml"
@@ -53,7 +59,12 @@ object TypzArchive {
         val files = readEntries(input, maxTotalSize)
         val manifest = files[MANIFEST_PATH]
             ?: throw TypzFormatException("$MANIFEST_PATH not found at the root of the .typz file")
-        return TypzContents(TypstNative.manifestEntrypoint(manifest), files, TypstNative.manifestCoverImg(manifest))
+        return TypzContents(
+            TypstNative.manifestEntrypoint(manifest),
+            files,
+            TypstNative.manifestCoverImg(manifest),
+            TypstNative.manifestRequiredFonts(manifest).toList(),
+        )
     }
 
     /**

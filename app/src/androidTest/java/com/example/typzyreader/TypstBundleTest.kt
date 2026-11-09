@@ -2,13 +2,18 @@ package com.example.typzyreader
 
 import android.graphics.Bitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
 
 @RunWith(AndroidJUnit4::class)
 class TypstBundleTest {
@@ -137,6 +142,37 @@ class TypstBundleTest {
         assertTrue("first ${sections[0].yPt}", sections[0].yPt >= 20f && sections[0].yPt < 30f)
         assertTrue("second ${sections[1].yPt}", sections[1].yPt > sections[0].yPt)
         assertTrue("third ${sections[2].yPt}", sections[2].yPt >= 20f && sections[2].yPt < 30f)
+    }
+
+    @Test
+    fun knowsTheDevicesFontFamilies() {
+        assertTrue(TypstNative.hasFontFamily("Roboto"))
+        assertTrue(TypstNative.hasFontFamily("roboto")) // any case
+        assertFalse(TypstNative.hasFontFamily("Lobster"))
+    }
+
+    @Test
+    fun usesFontsDownloadedFromGoogleFonts() {
+        val cache = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "test-google-fonts")
+        cache.deleteRecursively()
+        val fonts = try {
+            GoogleFonts(cache).fetch("Lobster")
+        } catch (e: IOException) {
+            assumeTrue("Google Fonts unreachable: ${e.message}", false)
+            return
+        }
+        assertTrue("Lobster from Google Fonts", fonts.isNotEmpty())
+        val main = "main.typ" to "#set text(font: \"Lobster\", fallback: false)\nHello".toByteArray()
+        // Without the downloaded font, Typst warns that it doesn't know the family; with it, not.
+        TypstBundle.open(TypzContents("main.typ", mapOf(main))).use {
+            assertTrue(it.compile(WIDTH, MARGIN).warnings.contains("unknown font family: lobster"))
+        }
+        TypstBundle.open(TypzContents("main.typ", mapOf(main)), fonts = fonts).use {
+            assertEquals("", it.compile(WIDTH, MARGIN).warnings)
+        }
+        // Fetched again, it comes from the cache.
+        assertEquals(fonts.size, GoogleFonts(cache).fetch("Lobster").size)
+        cache.deleteRecursively()
     }
 
     @Test
