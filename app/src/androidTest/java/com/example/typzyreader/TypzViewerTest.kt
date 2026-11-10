@@ -1,6 +1,7 @@
 package com.example.typzyreader
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -33,10 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -51,6 +55,8 @@ class TypzViewerTest {
     @Before
     fun resetSettings() {
         context.getSharedPreferences(ReaderSettings.FILE_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences(RecentFiles.FILE_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        File(context.filesDir, RecentFiles.COVER_DIR).deleteRecursively()
     }
 
     /**
@@ -77,20 +83,47 @@ class TypzViewerTest {
             Hello
         """.trimIndent(),
         manifestExtra: String = "",
+        name: String = "viewer-test.typz",
+        extraFiles: Map<String, ByteArray> = emptyMap(),
     ): File {
         val files = mapOf(
-            "typst.toml" to "[project]\nentrypoint = \"main.typ\"\n$manifestExtra",
-            "main.typ" to mainTyp,
-        )
-        val file = File(context.cacheDir, "viewer-test.typz")
+            "typst.toml" to "[project]\nentrypoint = \"main.typ\"\n$manifestExtra".toByteArray(),
+            "main.typ" to mainTyp.toByteArray(),
+        ) + extraFiles
+        val file = File(context.cacheDir, name)
         ZipOutputStream(file.outputStream()).use { zip ->
-            for ((name, text) in files) {
-                zip.putNextEntry(ZipEntry(name))
-                zip.write(text.toByteArray())
+            for ((entry, data) in files) {
+                zip.putNextEntry(ZipEntry(entry))
+                zip.write(data)
                 zip.closeEntry()
             }
         }
         return file
+    }
+
+    /** What [showViewer] shows: a new viewer opening this file, or the start view if null. */
+    private var viewerUri by mutableStateOf<Uri?>(null)
+
+    /** Shows a viewer of [viewerUri], anew each time that changes, like starting the app again. */
+    private fun showViewer() {
+        compose.setContent {
+            key(viewerUri) {
+                Box(Modifier.width(400.dp)) { TypzViewer(initialUri = viewerUri) }
+            }
+        }
+    }
+
+    /** Has [showViewer] show [file] until it's laid out and recorded as the most recent file. */
+    private fun open(file: File) {
+        val uri = Uri.fromFile(file)
+        compose.runOnIdle { viewerUri = uri }
+        waitForDocument("1 page laid out")
+        compose.waitUntil(timeoutMillis = 5_000) { RecentFiles(context).files.firstOrNull()?.uri == uri.toString() }
+    }
+
+    /** Has [showViewer] show the start view, as when the app starts with no file. */
+    private fun showStartView() {
+        compose.runOnIdle { viewerUri = null }
     }
 
     /**
@@ -496,6 +529,75 @@ class TypzViewerTest {
         showBars()
         compose.onNodeWithContentDescription("Show warnings").performClick()
         compose.onNodeWithText("unknown font family: no such font", substring = true).assertExists()
+    }
+
+    @Test
+    fun startViewListsTheThreeMostRecentFiles() {
+        val cover = ByteArrayOutputStream().also {
+            Bitmap.createBitmap(20, 28, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, it)
+        }.toByteArray()
+        showViewer()
+        val first = writeTypz(name = "recent-1.typz")
+        open(first)
+        val second = writeTypz(
+            mainTyp = "#set document(title: \"Second Book\")\nHello",
+            manifestExtra = "[tool.typzy-reader]\ncover-img = \"cover.png\"\n",
+            name = "recent-2.typz",
+            extraFiles = mapOf("cover.png" to cover),
+        )
+        open(second)
+        val third = writeTypz(name = "recent-3.typz")
+        open(third)
+        val fourth = writeTypz(name = "recent-4.typz")
+        open(fourth)
+
+        showStartView()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithText("Recent").fetchSemanticsNodes().isNotEmpty() }
+        // Newest first, under the document's own title if it has one, above where the file is.
+        compose.onNodeWithText("recent-4.typz").assertIsDisplayed()
+        compose.onNodeWithText(fourth.path).assertIsDisplayed()
+        compose.onNodeWithText("recent-3.typz").assertIsDisplayed()
+        compose.onNodeWithText("Second Book").assertIsDisplayed()
+        compose.onNodeWithText(second.path).assertIsDisplayed()
+        compose.onNodeWithText("recent-1.typz").assertDoesNotExist()
+        assertEquals(listOf(fourth, third, second).map { Uri.fromFile(it).toString() }, RecentFiles(context).files.map { it.uri })
+        assertTrue(RecentFiles(context).files.last().cover!!.isFile)
+        assertEquals(null, RecentFiles(context).files.first().cover)
+
+        compose.onNodeWithText("Second Book").performClick()
+        waitForDocument("1 page laid out")
+        compose.onNodeWithText("Open file").assertDoesNotExist()
+    }
+
+    @Test
+    fun startViewForgetsRecentFilesThatAreGone() {
+        showViewer()
+        val kept = writeTypz(name = "recent-kept.typz")
+        open(kept)
+        val gone = writeTypz(name = "recent-gone.typz")
+        open(gone)
+        gone.delete()
+
+        showStartView()
+        compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithText("recent-kept.typz").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("recent-gone.typz").assertDoesNotExist()
+        assertEquals(listOf(Uri.fromFile(kept).toString()), RecentFiles(context).files.map { it.uri })
+    }
+
+    @Test
+    fun menuListsRecentFilesByName() {
+        showViewer()
+        val first = writeTypz(mainTyp = "#set document(title: \"First Book\")\nHello", name = "recent-first.typz")
+        open(first)
+        open(writeTypz(mainTyp = "#set document(title: \"Second Book\")\nHello", name = "recent-second.typz"))
+
+        showBars()
+        compose.onNodeWithContentDescription("Menu").performClick()
+        compose.onNodeWithText("recent-second.typz").assertIsDisplayed()
+        compose.onNodeWithText(first.path).assertDoesNotExist() // names only
+        compose.onNodeWithText("recent-first.typz").performClick()
+        compose.waitUntil(timeoutMillis = 15_000) { compose.onAllNodesWithText("First Book").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("recent-second.typz").assertDoesNotExist() // the menu closed
     }
 
     @Test

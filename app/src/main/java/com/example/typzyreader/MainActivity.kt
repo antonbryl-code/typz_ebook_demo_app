@@ -3,6 +3,7 @@ package com.example.typzyreader
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -14,8 +15,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animate
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,11 +27,13 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +45,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -61,6 +67,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,6 +76,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -133,6 +141,13 @@ private val COVER_MAX_WIDTH = 312.dp
 /** Where the panel's text starts, lined up with the labels of its section items. */
 private val PANEL_TEXT_INSET = 28.dp
 
+/** The size of a recent file's cover on the start view: its height, and the space for it. */
+private val RECENT_COVER_HEIGHT = 56.dp
+private val RECENT_COVER_WIDTH = 40.dp
+
+/** How wide the list of recent files gets, on a wide screen. */
+private val RECENT_FILES_MAX_WIDTH = 480.dp
+
 /** What the document area shows. */
 private sealed interface ViewerContent {
     data class Message(val text: String) : ViewerContent
@@ -172,6 +187,8 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     var bundle by remember { mutableStateOf<TypstBundle?>(null) }
     var viewSize by remember { mutableStateOf<IntSize?>(null) }
     val settings = remember { ReaderSettings(context) }
+    val recents = remember { RecentFiles(context) }
+    var recentFiles by remember { mutableStateOf(recents.files) }
     var textSizePercent by remember { mutableIntStateOf(settings.textSizePercent) }
     val layout = viewSize?.let { size ->
         val metrics = context.resources.displayMetrics
@@ -267,6 +284,19 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
         cover = withContext(Dispatchers.Default) { decodeCover(data, maxWidthPx, maxHeightPx) }
     }
 
+    // The open document leads the recent files, under its own title once it's compiled.
+    val documentOwnTitle = (content as? ViewerContent.Document)?.document?.title
+    LaunchedEffect(bundle, fileName, documentOwnTitle) {
+        val opened = bundle ?: return@LaunchedEffect
+        val current = uri ?: return@LaunchedEffect
+        val name = fileName ?: return@LaunchedEffect
+        val coverHeightPx = (RECENT_COVER_HEIGHT.value * density).roundToInt()
+        recentFiles = withContext(Dispatchers.IO) {
+            val thumbnail = opened.coverImage?.let { coverThumbnail(it, coverHeightPx) }
+            recents.record(current, documentOwnTitle ?: name, name, thumbnail)
+        }
+    }
+
     // The document as compiled for the layouts it was recently shown at, e.g. both orientations.
     val compiled = remember(bundle) { LayoutCache<ViewLayout, ViewerContent.Document>(COMPILED_LAYOUTS) }
     LaunchedEffect(bundle, layout) {
@@ -304,7 +334,20 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
 
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         if (uri == null && requestedUri == null) {
-            OpenFilePrompt(onOpen = pickFile)
+            // Shown once those whose files are gone are forgotten.
+            var checkedRecentFiles by remember { mutableStateOf<List<RecentFile>?>(null) }
+            LaunchedEffect(Unit) {
+                val gone = withContext(Dispatchers.IO) {
+                    recentFiles.filterNot { recentFileExists(context, Uri.parse(it.uri)) }.map { it.uri }.toSet()
+                }
+                if (gone.isNotEmpty()) recentFiles = recents.remove(gone)
+                checkedRecentFiles = recentFiles
+            }
+            OpenFilePrompt(
+                recentFiles = checkedRecentFiles.orEmpty(),
+                onOpen = pickFile,
+                onOpenRecent = { requestedUri = Uri.parse(it.uri) },
+            )
             return@Surface
         }
         val documentTitle = (content as? ViewerContent.Document)?.document?.title ?: fileName
@@ -422,6 +465,18 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
                                             showSettings = true
                                         },
                                     )
+                                    if (recentFiles.isNotEmpty()) {
+                                        HorizontalDivider()
+                                        for (recent in recentFiles) {
+                                            DropdownMenuItem(
+                                                text = { Text(recent.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                                onClick = {
+                                                    showMenu = false
+                                                    requestedUri = Uri.parse(recent.uri)
+                                                },
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         },
@@ -621,27 +676,91 @@ private fun BookPanel(
     }
 }
 
-/** Shown while no file is open. */
+/** Shown while no file is open: a button to pick one, and the [recentFiles] to open again. */
 @Composable
-private fun OpenFilePrompt(onOpen: () -> Unit) {
-    Column(
-        modifier = Modifier
+private fun OpenFilePrompt(
+    recentFiles: List<RecentFile>,
+    onOpen: () -> Unit,
+    onOpenRecent: (RecentFile) -> Unit,
+) {
+    BoxWithConstraints(
+        Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("Open a .typz file to view it.", textAlign = TextAlign.Center)
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = onOpen) {
-            Icon(
-                painterResource(R.drawable.ic_folder_open),
-                contentDescription = null,
-                modifier = Modifier.size(ButtonDefaults.IconSize),
+        // Centred when it fits, scrolling when it doesn't (e.g. in landscape).
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = maxHeight)
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Open a .typz file to view it.", textAlign = TextAlign.Center)
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = onOpen) {
+                Icon(
+                    painterResource(R.drawable.ic_folder_open),
+                    contentDescription = null,
+                    modifier = Modifier.size(ButtonDefaults.IconSize),
+                )
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text("Open file")
+            }
+            if (recentFiles.isNotEmpty()) {
+                Spacer(Modifier.height(32.dp))
+                Column(Modifier.widthIn(max = RECENT_FILES_MAX_WIDTH)) {
+                    Text(
+                        text = "Recent",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    for (recent in recentFiles) {
+                        RecentFileItem(recent, onClick = { onOpenRecent(recent) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A recent file on the start view: its cover, title and location. */
+@Composable
+private fun RecentFileItem(recent: RecentFile, onClick: () -> Unit) {
+    val cover by produceState<ImageBitmap?>(null, recent.cover) {
+        value = withContext(Dispatchers.IO) {
+            recent.cover?.let { BitmapFactory.decodeFile(it.path) }?.asImageBitmap()
+        }
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+    ) {
+        Box(Modifier.size(RECENT_COVER_WIDTH, RECENT_COVER_HEIGHT), contentAlignment = Alignment.Center) {
+            val coverModifier = Modifier.height(RECENT_COVER_HEIGHT)
+            val shown = cover
+            if (shown != null) {
+                Image(shown, contentDescription = null, modifier = coverModifier)
+            } else if (recent.cover == null) {
+                Image(painterResource(R.drawable.default_cover), contentDescription = null, modifier = coverModifier)
+            }
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(recent.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                text = recent.location,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-            Text("Open file")
         }
     }
 }
