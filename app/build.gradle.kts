@@ -12,6 +12,10 @@ val rustAbis = providers.gradleProperty("rustAbis")
     .orElse("arm64-v8a,armeabi-v7a,x86_64")
     .map { abis -> abis.split(',').map(String::trim).filter(String::isNotEmpty) }
 
+// With -PabiApks, also an APK per ABI (e.g. app-arm64-v8a-release.apk, far smaller) beside
+// the universal one, for publishing APKs outside Google Play, which builds its own from the bundle.
+val abiApks = providers.gradleProperty("abiApks").isPresent
+
 // Google Play upload key for release builds, kept out of the project: the key's storeFile and
 // keyAlias as Gradle properties in ~/.gradle/gradle.properties, and its passwords passed with -P
 // only for builds meant for Google Play, e.g.
@@ -49,6 +53,15 @@ android {
             // Without this, libraries from dependencies would add ABIs (e.g. x86) that lack the
             // Typst library, so the app would install there and then crash when loading it.
             abiFilters += rustAbis.get()
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = abiApks
+            reset()
+            include(*rustAbis.get().toTypedArray())
+            isUniversalApk = true
         }
     }
 
