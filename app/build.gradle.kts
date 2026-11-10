@@ -12,12 +12,15 @@ val rustAbis = providers.gradleProperty("rustAbis")
     .orElse("arm64-v8a,armeabi-v7a,x86_64")
     .map { abis -> abis.split(',').map(String::trim).filter(String::isNotEmpty) }
 
-// Google Play upload key for release builds, kept out of the project: set these Gradle properties
-// in ~/.gradle/gradle.properties (or pass them with -P). Without them, release builds are signed
-// with the debug key (see buildTypes below), which Google Play rejects.
+// Google Play upload key for release builds, kept out of the project: the key's storeFile and
+// keyAlias as Gradle properties in ~/.gradle/gradle.properties, and its passwords passed with -P
+// only for builds meant for Google Play, e.g.
+//   gradlew :app:bundleRelease -Ptypzyreader.upload.storePassword=.. -Ptypzyreader.upload.keyPassword=..
+// Without the passwords, release builds are signed with the debug key (see buildTypes below), so
+// they still update a local install of one; Google Play rejects those.
 val uploadKey = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
     .associateWith { providers.gradleProperty("typzyreader.upload.$it").orNull }
-    .takeIf { key -> key.values.any { it != null } }
+    .takeIf { key -> key["storePassword"] != null || key["keyPassword"] != null }
     ?.also { key ->
         val missing = key.filterValues { it.isNullOrEmpty() }.keys
         require(missing.isEmpty()) {
