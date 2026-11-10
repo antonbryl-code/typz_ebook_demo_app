@@ -37,7 +37,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.typzyreader"
+        applicationId = "io.github.antonbryl_code.typzyreader"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
