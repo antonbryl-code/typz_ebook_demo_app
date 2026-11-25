@@ -34,20 +34,13 @@ class SectionBounds(val starts: List<Float>, val end: Float) {
  * calls for (see [ViewGeometry]), and a page reflowed to the view's width fills it.
  *
  * Pageless documents' pages are stacked vertically without gaps. Pages wider than the view are
- * scaled down to fit in documents rendered as authored; in documents that reflowed, they are
- * pages the document deliberately made wider (e.g. for a big table), so they keep their size and
- * scroll sideways, with a serrated edge on each side there's more of the page to scroll to.
- * Narrower pages keep their size and are centered.
+ * scaled down to fit; narrower ones keep their size and are centered.
  *
  * Books in [PageMode.SCROLLED] are stacked the same way, with gaps between the pages. In the
  * swiped modes, pages sit side by side, one or two to a screen, and the page itself scrolls
  * sideways a whole screen at a time (CSS scroll snapping, so no JavaScript is needed).
  */
 object DocumentHtml {
-    /** Serration teeth on the edges of sideways-scrolling pages: how far they cut in, and their pitch. */
-    private const val TOOTH_DEPTH_PX = 5
-    private const val TOOTH_PITCH_PX = 10
-
     /**
      * Pages with SVGs up to this long (in chars) are shown as images; larger ones inline, as
      * WebViews may refuse very long `data:` URLs. A page rarely comes near it.
@@ -92,58 +85,27 @@ object DocumentHtml {
         ptPerCssPx: Float,
         mode: PageMode,
     ): String = buildString {
-        val reflowed = mode == PageMode.PAGELESS && reflowed(document, viewWidthPt)
-        val background = background(dark)
-        // Against a white page, the light background would barely show.
-        val toothColor = if (dark) background else "#9e9e9e"
         val gaps = if (mode == PageMode.SCROLLED) {
-            ".row { margin-bottom: ${BOOK_PAGE_GAP_PX}px; } .row:last-child { margin-bottom: 0; }"
+            ".page { margin-bottom: ${BOOK_PAGE_GAP_PX}px; } .page:last-child { margin-bottom: 0; }"
         } else {
             ""
         }
         appendHead(dark, mode, """
               body { padding-top: ${topPaddingPx}px; padding-bottom: ${bottomPaddingPx}px; }
-              /* One per page; its scroller scrolls sideways when the page is wider than the view. */
-              .row { position: relative; timeline-scope: --x; }
-              $gaps
-              .scroller { overflow-x: auto; overflow-y: hidden; scroll-timeline: --x inline; scrollbar-width: none; }
-              /* Serrated edges, cut in a color that stands out from the page, where it continues
-                 beyond the view. They're shown by animations driven by the scroller's position (no
-                 JavaScript needed); a page that doesn't scroll has no active timeline, so they
-                 stay hidden, as they do on WebViews without scroll-driven animations. */
-              .row::before, .row::after {
-                content: ""; position: absolute; top: 0; bottom: 0; z-index: 1;
-                width: ${TOOTH_DEPTH_PX}px; opacity: 0; pointer-events: none;
-                animation-duration: auto; animation-timing-function: linear;
-                animation-fill-mode: both; animation-timeline: --x;
-              }
-              .row::before {
-                left: 0; animation-name: more-left;
-                background: conic-gradient(from 225deg at 100% 50%, $toothColor 0 90deg, transparent 0)
-                  0 0 / ${TOOTH_DEPTH_PX}px ${TOOTH_PITCH_PX}px repeat-y;
-              }
-              .row::after {
-                right: 0; animation-name: more-right;
-                background: conic-gradient(from 45deg at 0 50%, $toothColor 0 90deg, transparent 0)
-                  0 0 / ${TOOTH_DEPTH_PX}px ${TOOTH_PITCH_PX}px repeat-y;
-              }
-              @keyframes more-left { 0% { opacity: 0; } 1%, 100% { opacity: 1; } }
-              @keyframes more-right { 0%, 99% { opacity: 1; } 100% { opacity: 0; } }
               .page { margin: 0 auto; }
-        """, background)
+              $gaps
+        """, background(dark))
         for (page in document.pages) {
             // Typst sizes pages in pt; the aspect ratio keeps scaled-down pages proportional.
-            val widthPx = css(page.widthPt / ptPerCssPx)
-            val width = when {
+            val width = if (fillsView(page, viewWidthPt, mode)) {
                 // Fill the view exactly: its width was rounded to whole dp for compiling, so
                 // the page's own width can be a fraction of a pixel short of it.
-                reflowed && matches(page, viewWidthPt) -> "100%"
-                reflowed -> "${widthPx}px"
-                else -> "min(100%, ${widthPx}px)"
+                "100%"
+            } else {
+                "min(100%, ${css(page.widthPt / ptPerCssPx)}px)"
             }
-            append("<div class=\"row\"><div class=\"scroller\">")
             appendPage(page, width)
-            append("</div></div>\n")
+            append("\n")
         }
         append("</body></html>")
     }
@@ -366,16 +328,15 @@ object DocumentHtml {
         ptPerCssPx: Float,
         mode: PageMode = PageMode.PAGELESS,
     ): Float {
-        val reflowed = mode == PageMode.PAGELESS && reflowed(document, viewWidthPt)
         val gap = if (mode == PageMode.SCROLLED) BOOK_PAGE_GAP_PX.toFloat() else 0f
         // The width a page ends up at sets the scale of everything on it.
         fun cssPxPerPt(page: TypstPage): Float {
-            val widthPx = page.widthPt / ptPerCssPx
-            return when {
-                reflowed && matches(page, viewWidthPt) -> viewWidthCssPx
-                reflowed -> widthPx
-                else -> minOf(viewWidthCssPx, widthPx)
-            } / page.widthPt
+            val widthPx = if (fillsView(page, viewWidthPt, mode)) {
+                viewWidthCssPx
+            } else {
+                minOf(viewWidthCssPx, page.widthPt / ptPerCssPx)
+            }
+            return widthPx / page.widthPt
         }
         val above = document.pages.take(section.pageIndex)
         val pagesAbove = above.sumOf { (it.heightPt * cssPxPerPt(it)).toDouble() }.toFloat() + above.size * gap
@@ -418,13 +379,12 @@ object DocumentHtml {
      */
     private const val READING_LINE_PX = 16f
 
-    /** A document that reflowed has a page exactly as wide as the view. */
-    private fun reflowed(document: TypstDocument, viewWidthPt: Float?) =
-        document.pages.any { matches(it, viewWidthPt) }
-
-    /** Whether [page] is as wide as a view [viewWidthPt] wide, i.e. was reflowed to it. */
-    private fun matches(page: TypstPage, viewWidthPt: Float?) =
-        viewWidthPt != null && abs(page.widthPt - viewWidthPt) < WIDTH_TOLERANCE_PT
+    /**
+     * Whether [page] fills the view: in [PageMode.PAGELESS], when it's as wide as a view
+     * [viewWidthPt] wide, i.e. was reflowed to it.
+     */
+    private fun fillsView(page: TypstPage, viewWidthPt: Float?, mode: PageMode) =
+        mode == PageMode.PAGELESS && viewWidthPt != null && abs(page.widthPt - viewWidthPt) < WIDTH_TOLERANCE_PT
 
     private fun css(value: Float) = String.format(Locale.ROOT, "%.3f", value)
 }

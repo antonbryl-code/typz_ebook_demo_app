@@ -355,7 +355,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
         BackHandler(enabled = drawerState.isOpen) { scope.launch { drawerState.close() } }
         ModalNavigationDrawer(
             drawerState = drawerState,
-            // Only for closing it: swiping it open would take sideways swipes from wide pages.
+            // Only for closing it: swiping it open would take sideways swipes from page turns.
             gesturesEnabled = drawerState.isOpen,
             drawerContent = {
                 BookPanel(

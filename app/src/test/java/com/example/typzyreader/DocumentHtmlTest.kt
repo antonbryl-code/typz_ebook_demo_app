@@ -25,10 +25,9 @@ class DocumentHtmlTest {
 
     @Test
     fun sizesPagesForTheTextSize() {
-        // At 0.5pt per CSS px, a 600pt page next to a reflowed 300pt one is 1200 CSS px wide.
-        val document = TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), "")
-        val html = DocumentHtml.build(document, dark = false, viewWidthPt = 300f, ptPerCssPx = 0.5f)
-        assertTrue(html, html.contains("width: 1200.000px; aspect-ratio: 600.000 / 60.000"))
+        // At 0.5pt per CSS px, a 200pt page is 400 CSS px wide.
+        val html = DocumentHtml.build(TypstDocument(listOf(page(200f, 40f, "a")), ""), dark = false, ptPerCssPx = 0.5f)
+        assertTrue(html, html.contains("width: min(100%, 400.000px); aspect-ratio: 200.000 / 40.000"))
     }
 
     @Test
@@ -49,10 +48,11 @@ class DocumentHtmlTest {
 
     @Test
     fun findsSectionsOnWidePagesOfReflowedDocuments() {
-        // The 600pt page keeps its size, at the same 4/3 CSS px per point as the 300pt one above.
+        // The 300pt page fills the 400 CSS px view (4/3 CSS px per point); the 600pt one is scaled
+        // down to fit it (2/3 CSS px per point).
         val document = TypstDocument(listOf(page(300f, 30f, "a"), page(600f, 60f, "b")), "")
         val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f)
-        assertEquals(80f, top, 0.01f)
+        assertEquals(60f, top, 0.01f)
     }
 
     @Test
@@ -138,7 +138,7 @@ class DocumentHtmlTest {
     fun scrollsBookPagesWithGapsBetweenThem() {
         val document = TypstDocument(listOf(page(300f, 424f, "a"), page(300f, 424f, "b")), "")
         val html = DocumentHtml.build(document, dark = false, viewWidthPt = 300f, mode = PageMode.SCROLLED)
-        assertTrue(html, html.contains(".row { margin-bottom: 12px; } .row:last-child { margin-bottom: 0; }"))
+        assertTrue(html, html.contains(".page { margin-bottom: 12px; } .page:last-child { margin-bottom: 0; }"))
         assertTrue(html, html.contains("width: min(100%, 400.000px)"))
         // Sections below the first page are lower by the gap above them.
         val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f, PageMode.SCROLLED)
@@ -194,7 +194,7 @@ class DocumentHtmlTest {
     fun leavesRoomForTheBottomBar() {
         val html = DocumentHtml.build(TypstDocument(emptyList(), ""), dark = false, topPaddingPx = 64, bottomPaddingPx = 64)
         assertTrue(html, html.contains("body { padding-top: 64px; padding-bottom: 64px; }"))
-        // No thin scrollbars, on the page or on sideways-scrolling strips.
+        // No thin scrollbars.
         assertTrue(html, html.contains("scrollbar-width: none"))
     }
 
@@ -238,13 +238,6 @@ class DocumentHtmlTest {
     }
 
     @Test
-    fun putsEachPageInARowThatScrollsSideways() {
-        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), ""), dark = false)
-        assertEquals(2, Regex("<div class=\"row\"><div class=\"scroller\"><div class=\"page\"").findAll(html).count())
-        assertTrue(html, html.contains(".scroller { overflow-x: auto; overflow-y: hidden; scroll-timeline: --x inline; scrollbar-width: none; }"))
-    }
-
-    @Test
     fun leavesNoGapsBetweenPages() {
         val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(300f, 60f, "b")), ""), dark = false)
         assertFalse(html, html.contains("margin-bottom"))
@@ -252,30 +245,13 @@ class DocumentHtmlTest {
     }
 
     @Test
-    fun serratesEdgesWhereThePageScrollsOn() {
-        // Hidden unless the row's scroll timeline says there's more to the left or right.
-        val html = DocumentHtml.build(TypstDocument(listOf(page(600f, 60f, "a")), ""), dark = true, viewWidthPt = 300f)
-        assertTrue(html, html.contains("width: 5px; opacity: 0; pointer-events: none;"))
-        assertTrue(html, html.contains("left: 0; animation-name: more-left;"))
-        assertTrue(html, html.contains("right: 0; animation-name: more-right;"))
-        assertTrue(html, html.contains("@keyframes more-left { 0% { opacity: 0; } 1%, 100% { opacity: 1; } }"))
-        assertTrue(html, html.contains("@keyframes more-right { 0%, 99% { opacity: 1; } 100% { opacity: 0; } }"))
-        // The teeth stand out from the white page in both modes.
-        assertEquals(2, Regex("conic-gradient\\([^,]*, #202124 0 90deg").findAll(html).count())
-        val light = DocumentHtml.build(TypstDocument(listOf(page(600f, 60f, "a")), ""), dark = false, viewWidthPt = 300f)
-        assertEquals(2, Regex("conic-gradient\\([^,]*, #9e9e9e 0 90deg").findAll(light).count())
-    }
-
-    @Test
-    fun keepsWiderPagesOfReflowedDocumentsAtTheirSize() {
-        // The 300pt page matches the view, so the document reflowed and its 600pt table page
-        // (800 CSS px) is meant to be that wide.
+    fun scalesWiderPagesOfReflowedDocumentsToFit() {
+        // The 300pt page matches the view, so the document reflowed; its 600pt page is scaled down.
         val document = TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), "")
         val html = DocumentHtml.build(document, dark = false, viewWidthPt = 300f)
         // Reflowed pages fill the view exactly, whatever its fractional width in CSS px.
         assertTrue(html, html.contains("width: 100%; aspect-ratio: 300.000 / 40.000"))
-        assertTrue(html, html.contains("width: 800.000px; aspect-ratio: 600.000 / 60.000"))
-        assertFalse(html, html.contains("min(100%"))
+        assertTrue(html, html.contains("width: min(100%, 800.000px); aspect-ratio: 600.000 / 60.000"))
     }
 
     @Test
