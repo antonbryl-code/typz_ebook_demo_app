@@ -1,21 +1,18 @@
-//! The `typst.toml` manifest at the root of a .typz file, which names the file to compile and,
-//! optionally, the format the document is meant to be read in and the image of its cover:
+//! The `typst.toml` manifest at the root of a .typz file, which names the file to compile, the
+//! format the document is meant to be read in and, optionally, the image of its cover:
 //!
 //! ```toml
 //! [project]
 //! entrypoint = "main.typ"
 //!
 //! [tool.typzy-reader]
-//! format = "pageless"
+//! format = "flexible-traditional-book"
 //! cover-img = "images/cover.png"
 //! required-fonts = ["Inter", "Noto Serif"]
 //! ```
 
 use toml::{Table, Value};
 use typst::syntax::VirtualPath;
-
-/// The format of documents whose manifest doesn't name one.
-const DEFAULT_FORMAT: &str = "pageless";
 
 /// The `entrypoint` of the manifest's `[project]` section, as written there (a path relative
 /// to the root of the .typz file).
@@ -34,15 +31,14 @@ pub fn entrypoint(manifest: &[u8]) -> Result<String, String> {
     }
 }
 
-/// The `format` of the manifest's `[tool.typzy-reader]` section, [`DEFAULT_FORMAT`] if there is
-/// none. Not checked against the known formats; a value that isn't a string comes back as TOML.
-pub fn format(manifest: &[u8]) -> Result<String, String> {
+/// The `format` of the manifest's `[tool.typzy-reader]` section, None if there is none. Not
+/// checked against the known formats; a value that isn't a string comes back as TOML.
+pub fn format(manifest: &[u8]) -> Result<Option<String>, String> {
     let table = parse(manifest)?;
-    Ok(match tool_field(&table, "format") {
-        None => DEFAULT_FORMAT.to_owned(),
-        Some(Value::String(format)) => format.clone(),
-        Some(other) => other.to_string(),
-    })
+    Ok(tool_field(&table, "format").map(|format| match format {
+        Value::String(format) => format.clone(),
+        other => other.to_string(),
+    }))
 }
 
 /// The `cover-img` of the manifest's `[tool.typzy-reader]` section, as a normalized path from the
@@ -122,20 +118,20 @@ mod tests {
 
     #[test]
     fn reads_format() {
-        assert_eq!(format(b"[tool.typzy-reader]\nformat = \"book\""), Ok("book".into()));
-        assert_eq!(format(b"[tool.typzy-reader]\nformat = \"other\""), Ok("other".into()));
+        assert_eq!(format(b"[tool.typzy-reader]\nformat = \"book\""), Ok(Some("book".into())));
+        assert_eq!(format(b"[tool.typzy-reader]\nformat = \"other\""), Ok(Some("other".into())));
     }
 
     #[test]
-    fn defaults_format_to_pageless() {
-        assert_eq!(format(b"[project]\nentrypoint = \"a.typ\""), Ok("pageless".into()));
-        assert_eq!(format(b"[tool.typzy-reader]\nother = 1"), Ok("pageless".into()));
-        assert_eq!(format(b"[tool.other]\nformat = \"book\""), Ok("pageless".into()));
+    fn has_no_format_unless_named() {
+        assert_eq!(format(b"[project]\nentrypoint = \"a.typ\""), Ok(None));
+        assert_eq!(format(b"[tool.typzy-reader]\nother = 1"), Ok(None));
+        assert_eq!(format(b"[tool.other]\nformat = \"book\""), Ok(None));
     }
 
     #[test]
     fn shows_other_format_values_as_toml() {
-        assert_eq!(format(b"[tool.typzy-reader]\nformat = 3"), Ok("3".into()));
+        assert_eq!(format(b"[tool.typzy-reader]\nformat = 3"), Ok(Some("3".into())));
     }
 
     #[test]

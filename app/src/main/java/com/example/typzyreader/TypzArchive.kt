@@ -7,17 +7,17 @@ import java.util.zip.ZipInputStream
 
 class TypzFormatException(message: String) : IOException(message)
 
-/** The formats a .typz can name in its manifest's `format`, and how they're laid out. */
-enum class TypzFormat(val value: String) {
-    /** Reflowed to the view's width, without page breaks of its own (see [PageMode.PAGELESS]). */
-    PAGELESS("pageless"),
-
+/**
+ * The formats a .typz can name in its manifest's `format`, by their [value] or any of their
+ * [synonyms], and how they're laid out.
+ */
+enum class TypzFormat(val value: String, val synonyms: Set<String> = emptySet()) {
     /** Pages sized for the view, laid out one of three ways (see [ViewGeometry.bookLayout]). */
-    BOOK("book");
+    FLEXIBLE_TRADITIONAL_BOOK("flexible-traditional-book", setOf("book"));
 
     companion object {
         /** The format a manifest's `format` value names, null if it's none of them. */
-        fun of(value: String): TypzFormat? = entries.find { it.value == value }
+        fun of(value: String): TypzFormat? = entries.find { it.value == value || value in it.synonyms }
     }
 }
 
@@ -42,8 +42,8 @@ class TypzContents(
 /**
  * Reader for .typz files: zip archives with the Typst sources at their root (and in
  * subfolders), and a typst.toml manifest there whose `[project]` section names the
- * `entrypoint` to compile, and whose optional `[tool.typzy-reader]` section the `format`, the
- * `cover-img` and the `required-fonts`.
+ * `entrypoint` to compile, and whose `[tool.typzy-reader]` section the `format` and, optionally,
+ * the `cover-img` and the `required-fonts`.
  */
 object TypzArchive {
     const val MANIFEST_PATH = "typst.toml"
@@ -68,17 +68,25 @@ object TypzArchive {
     }
 
     /**
-     * The format the .typz's manifest names, as written there (see [TypzFormat.of]); "pageless"
-     * if it names none, or if there's no manifest, which [read] reports.
+     * The format the .typz's manifest names, as written there (see [TypzFormat.of]); null if it
+     * names none. Throws [TypzFormatException] if there's no manifest.
      */
-    fun format(input: InputStream, maxTotalSize: Long = MAX_TOTAL_SIZE): String {
-        val manifest = readManifest(input, maxTotalSize) ?: return TypzFormat.PAGELESS.value
+    fun format(input: InputStream, maxTotalSize: Long = MAX_TOTAL_SIZE): String? {
+        val manifest = readManifest(input, maxTotalSize)
+            ?: throw TypzFormatException("$MANIFEST_PATH not found at the root of the .typz file")
         return TypstNative.manifestFormat(manifest)
     }
 
-    /** Why a document in [format] can't be opened, null if it can. */
-    fun formatProblem(format: String): String? =
-        if (TypzFormat.of(format) != null) null else "\"$format\" is an unknown value for the \"format\" parameter."
+    /** Why a document in [format] (null if the manifest names none) can't be opened, null if it can. */
+    fun formatProblem(format: String?): String? = when {
+        format == null -> "The manifest must specify format, e.g. ${TypzFormat.FLEXIBLE_TRADITIONAL_BOOK.value}"
+        format == DEPRECATED_PAGELESS -> "The \"$DEPRECATED_PAGELESS\" format is deprecated."
+        TypzFormat.of(format) != null -> null
+        else -> "\"$format\" is an unknown value for the \"format\" parameter."
+    }
+
+    /** A format no longer supported, refused with its own message. */
+    private const val DEPRECATED_PAGELESS = "pageless"
 
     /** The manifest's bytes, read without keeping the other entries; null if there is none. */
     private fun readManifest(input: InputStream, maxTotalSize: Long): ByteArray? {

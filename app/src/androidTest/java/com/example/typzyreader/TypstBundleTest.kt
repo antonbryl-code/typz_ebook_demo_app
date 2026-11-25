@@ -53,7 +53,7 @@ class TypstBundleTest {
     }
 
     private fun compileDocument(vararg files: Pair<String, String>): TypstDocument =
-        open(*files).use { it.compile(WIDTH, MARGIN) }
+        open(*files).use { it.compile(WIDTH, MARGIN, HEIGHT) }
 
     private fun compile(vararg files: Pair<String, String>): List<TypstPage> =
         compileDocument(*files).pages
@@ -63,11 +63,11 @@ class TypstBundleTest {
         "#context layout(size => assert(calc.abs((size.width - ${width - 2 * MARGIN}pt) / 1pt) < 0.01, " +
             "message: \"text width \" + repr(size.width)))"
 
-    /** Every page is [WIDTH] wide and, being pageless, only as tall as its short content. */
-    private fun assertPageless(pages: List<TypstPage>) {
+    /** Every page is [WIDTH] by [HEIGHT], as offered. */
+    private fun assertFitsTheView(pages: List<TypstPage>) {
         for (page in pages) {
             assertEquals(WIDTH, page.widthPt, 0.01f)
-            assertTrue("height ${page.heightPt}", page.heightPt < 200f)
+            assertEquals(HEIGHT, page.heightPt, 0.01f)
         }
     }
 
@@ -81,7 +81,8 @@ class TypstBundleTest {
                 set page(paper: paper, margin: margin)
                 doc
               } else {
-                set page(width: eval(width), height: auto, margin: eval(sys.inputs.at("ebook-margin")))
+                let height = eval(sys.inputs.at("ebook-height"))
+                set page(width: eval(width), height: height, margin: eval(sys.inputs.at("ebook-margin")))
                 doc
               }
             }
@@ -93,13 +94,9 @@ class TypstBundleTest {
         val text = """
             #assert.eq(sys.inputs.at("ebook-width"), "300.5pt")
             #assert.eq(sys.inputs.at("ebook-margin"), "12pt")
+            #assert.eq(sys.inputs.at("ebook-height"), "420.5pt")
         """.trimIndent()
-        open("main.typ" to text).use { it.compile(300.5f, MARGIN) }
-        // Pageless documents aren't offered a height; books are.
-        open("main.typ" to "#assert.eq(sys.inputs.at(\"ebook-height\", default: none), none)").use { it.compile(300f, MARGIN) }
-        open("main.typ" to "#assert.eq(sys.inputs.at(\"ebook-height\"), \"420.5pt\")").use {
-            it.compile(300f, MARGIN, heightPt = 420.5f)
-        }
+        open("main.typ" to text).use { it.compile(300.5f, MARGIN, 420.5f) }
     }
 
     @Test
@@ -115,7 +112,7 @@ class TypstBundleTest {
     fun reflowsDocumentsThatOptIn() {
         val pages = compile(*reflowable("Hello\n${assertTextWidth()}\n#pagebreak()\nWorld"))
         assertEquals(2, pages.size)
-        assertPageless(pages)
+        assertFitsTheView(pages)
     }
 
     @Test
@@ -188,10 +185,10 @@ class TypstBundleTest {
         val main = "main.typ" to "#set text(font: \"Lobster\", fallback: false)\nHello".toByteArray()
         // Without the downloaded font, Typst warns that it doesn't know the family; with it, not.
         TypstBundle.open(TypzContents("main.typ", mapOf(main))).use {
-            assertTrue(it.compile(WIDTH, MARGIN).warnings.contains("unknown font family: lobster"))
+            assertTrue(it.compile(WIDTH, MARGIN, HEIGHT).warnings.contains("unknown font family: lobster"))
         }
         TypstBundle.open(TypzContents("main.typ", mapOf(main)), fonts = fonts).use {
-            assertEquals("", it.compile(WIDTH, MARGIN).warnings)
+            assertEquals("", it.compile(WIDTH, MARGIN, HEIGHT).warnings)
         }
         // Fetched again, it comes from the cache.
         assertEquals(fonts.size, GoogleFonts(cache).fetch("Lobster").size)
@@ -218,8 +215,8 @@ class TypstBundleTest {
     }
 
     @Test
-    fun keepsPagesThatReflowedDocumentsMakeWider() {
-        // E.g. a big table on a page of its own, wider than the view.
+    fun keepsPagesThatDocumentsMakeWider() {
+        // E.g. a big table on a page of its own, wider than the view; it's scaled down to show.
         val pages = compile(*reflowable("Hello\n#page(width: 600pt, height: auto)[Wide table]\nWorld"))
         assertEquals(listOf(WIDTH, 600f, WIDTH), pages.map { it.widthPt })
     }
@@ -238,9 +235,9 @@ class TypstBundleTest {
     @Test
     fun recompilesAtNewWidth() {
         open(*reflowable("Hello")).use { bundle ->
-            assertEquals(300f, bundle.compile(300f, MARGIN).pages.single().widthPt, 0.01f)
-            assertEquals(420f, bundle.compile(420f, MARGIN).pages.single().widthPt, 0.01f)
-            assertEquals(300f, bundle.compile(300f, MARGIN).pages.single().widthPt, 0.01f)
+            assertEquals(300f, bundle.compile(300f, MARGIN, HEIGHT).pages.single().widthPt, 0.01f)
+            assertEquals(420f, bundle.compile(420f, MARGIN, HEIGHT).pages.single().widthPt, 0.01f)
+            assertEquals(300f, bundle.compile(300f, MARGIN, HEIGHT).pages.single().widthPt, 0.01f)
         }
     }
 
@@ -307,11 +304,17 @@ class TypstBundleTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsBadWidth() {
-        open("main.typ" to "Hello").use { it.compile(0f, MARGIN) }
+        open("main.typ" to "Hello").use { it.compile(0f, MARGIN, HEIGHT) }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsBadHeight() {
+        open("main.typ" to "Hello").use { it.compile(WIDTH, MARGIN, 0f) }
     }
 
     private companion object {
         const val WIDTH = 300f
+        const val HEIGHT = 420f
         const val MARGIN = 12f
     }
 

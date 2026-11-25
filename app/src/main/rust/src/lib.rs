@@ -159,8 +159,8 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestEntrypoi
     })
 }
 
-/// `TypstNative.manifestFormat(manifest)`: the format named by a `typst.toml`, or the default
-/// one (see [`manifest`]). Throws TypzFormatException if the manifest is malformed.
+/// `TypstNative.manifestFormat(manifest)`: the format named by a `typst.toml`, or null if it
+/// names none (see [`manifest`]). Throws TypzFormatException if the manifest is malformed.
 #[no_mangle]
 pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestFormat<'local>(
     mut env: JNIEnv<'local>,
@@ -169,8 +169,10 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestFormat<'
 ) -> jstring {
     guard(&mut env, std::ptr::null_mut(), |env| {
         let manifest = env.convert_byte_array(&manifest)?;
-        let format = manifest::format(&manifest).map_err(|e| Error::new(FORMAT_EXCEPTION, e))?;
-        Ok(env.new_string(format)?.into_raw())
+        match manifest::format(&manifest).map_err(|e| Error::new(FORMAT_EXCEPTION, e))? {
+            Some(format) => Ok(env.new_string(format)?.into_raw()),
+            None => Ok(std::ptr::null_mut()),
+        }
     })
 }
 
@@ -291,9 +293,8 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_bundleFileSize<'
     })
 }
 
-/// Compiles the bundle, offering the view's width, a margin and, unless 0, a page height (in
-/// points) through `sys.inputs`,
-/// and renders it to one SVG per page. Returns `[sizes, svgs, textLayers, warnings, missing,
+/// Compiles the bundle, offering the page width, a margin and the page height (in points)
+/// through `sys.inputs`, and renders it to one SVG per page. Returns `[sizes, svgs, textLayers, warnings, missing,
 /// title, sections, sectionPositions]`: a `float[]` of `width0, height0, width1, height1, ..` in points, a `String[]` of page
 /// SVGs, a `String[]` of the pages' HTML text layers, and the formatted warnings (empty if none);
 /// `missing` is null, `title` the document's title or null, `sections` a `String[]` of its
@@ -314,12 +315,10 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_compile<'local>(
         if !(width_pt.is_finite() && width_pt > 0.0 && margin_pt.is_finite() && margin_pt >= 0.0) {
             return Err(Error::new(ILLEGAL_ARGUMENT, format!("Bad page geometry: width {width_pt}, margin {margin_pt}")));
         }
-        // 0 means none: pageless documents aren't offered a height.
-        if !(height_pt.is_finite() && height_pt >= 0.0) {
+        if !(height_pt.is_finite() && height_pt > 0.0) {
             return Err(Error::new(ILLEGAL_ARGUMENT, format!("Bad page height: {height_pt}")));
         }
-        let height = (height_pt > 0.0).then_some(height_pt);
-        let geometry = ViewerGeometry { width: width_pt, margin: margin_pt, height };
+        let geometry = ViewerGeometry { width: width_pt, margin: margin_pt, height: height_pt };
         let rendered = match bundle_mut(handle)?.compile(geometry) {
             Ok(rendered) => rendered,
             Err(CompileFailure::Errors(message)) => return Err(Error::new(COMPILE_EXCEPTION, message)),

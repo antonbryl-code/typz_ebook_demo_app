@@ -28,10 +28,10 @@ internal object TypstNative {
      */
     external fun manifestEntrypoint(manifest: ByteArray): String
     /**
-     * The `format` in the `[tool.typzy-reader]` section of a typst.toml, or the default format if
-     * it names none. Throws [TypzFormatException] if the manifest is malformed.
+     * The `format` in the `[tool.typzy-reader]` section of a typst.toml, or null if it names
+     * none. Throws [TypzFormatException] if the manifest is malformed.
      */
-    external fun manifestFormat(manifest: ByteArray): String
+    external fun manifestFormat(manifest: ByteArray): String?
     /**
      * The `cover-img` in the `[tool.typzy-reader]` section of a typst.toml, as a normalized path
      * from the root of the .typz; null if it names none or the path can't be inside the .typz.
@@ -50,8 +50,8 @@ internal object TypstNative {
     /** Size in bytes of the file at [path], or -1 if the bundle has no such file. */
     external fun bundleFileSize(handle: Long, path: String): Long
     /**
-     * Compiles the bundle, offering [widthPt], [marginPt] and, unless it's 0, [heightPt] through
-     * `sys.inputs`, and renders it.
+     * Compiles the bundle, offering [widthPt], [marginPt] and [heightPt] through `sys.inputs`,
+     * and renders it.
      * Returns `[sizes: FloatArray, svgs: Array<String>, textLayers: Array<String>, warnings: String,
      * null, title: String?, sections: Array<String>, sectionPositions: FloatArray]`, sizes being
      * `width0, height0, width1, height1, ..` in points, and sectionPositions `page0, y0, page1, y1,

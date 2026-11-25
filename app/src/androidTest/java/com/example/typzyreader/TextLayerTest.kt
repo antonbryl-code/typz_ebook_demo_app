@@ -13,7 +13,7 @@ import java.io.File
 class TextLayerTest {
     private fun compile(text: String): TypstDocument {
         val files = mapOf("main.typ" to text.toByteArray())
-        return TypstBundle.open(TypzContents("main.typ", files)).use { it.compile(300f, 12f) }
+        return TypstBundle.open(TypzContents("main.typ", files)).use { it.compile(300f, 12f, 420f) }
     }
 
     /** Word or whitespace boxes: `<span style="width:calc(W*var(--u));letter-spacing:…">TEXT</span>`. */
@@ -70,6 +70,6 @@ class TextLayerTest {
         // Not an assertion: leaves the viewer's HTML for a sample in the app's cache, so the text
         // layer can be checked in a desktop Chromium (selection, copy) after pulling it.
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        File(context.cacheDir, "text-layer-sample.html").writeText(DocumentHtml.build(compile(page), dark = false))
+        File(context.cacheDir, "text-layer-sample.html").writeText(DocumentHtml.build(compile(page), dark = false, mode = PageMode.SCROLLED))
     }
 }

@@ -44,7 +44,7 @@ import kotlin.math.roundToInt
  *
  * [onProgressChange] gets where the view is, for a slider, and each value from [slides] (in the
  * same units, see [DocumentProgress]) moves it there as the reader's own scrolling would.
- * [bottomPadding] leaves room below pageless documents for a bar laid over the view.
+ * [bottomPadding] leaves room below scrolled pages for a bar laid over the view.
  */
 @Composable
 fun DocumentView(
@@ -67,8 +67,7 @@ fun DocumentView(
     // With the device-width viewport, 1 CSS px = 1 dp.
     val html = remember(document, layout, dark, topPadding, bottomPadding) {
         DocumentHtml.build(
-            document, dark, topPadding.value.roundToInt(), layout.widthPt, layout.ptPerCssPx, layout.mode,
-            bottomPadding.value.roundToInt(),
+            document, dark, layout.mode, topPadding.value.roundToInt(), layout.ptPerCssPx, bottomPadding.value.roundToInt(),
         )
     }
     var webView by remember { mutableStateOf<DocumentWebView?>(null) }
@@ -83,7 +82,7 @@ fun DocumentView(
                 view.turnTo(DocumentHtml.screenOfPage(section.pageIndex, layout.mode))
             } else {
                 val viewWidthCssPx = view.width / view.resources.displayMetrics.density
-                val top = DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode)
+                val top = DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.ptPerCssPx)
                 view.jumpTo(top - SECTION_GAP_PX)
             }
         }
@@ -115,7 +114,7 @@ fun DocumentView(
                 } else {
                     val viewWidthCssPx = view.width / view.resources.displayMetrics.density
                     val tops = document.sections.map { section ->
-                        DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode)
+                        DocumentHtml.sectionTopPx(document, section, viewWidthCssPx, layout.ptPerCssPx)
                     }
                     DocumentHtml.currentSection(
                         tops, position.scrollTopCssPx, position.viewportHeightCssPx, topPadding.value, position.atEnd,
@@ -163,11 +162,7 @@ private fun progress(document: TypstDocument, layout: ViewLayout, position: View
         return DocumentProgress(screen.toFloat(), maxOf(0, screens.size - 1).toFloat(), label)
     }
     val fraction = if (position.maxScrollCssPx > 0) (position.scrollTopCssPx / position.maxScrollCssPx).coerceIn(0f, 1f) else 0f
-    val label = if (layout.mode == PageMode.PAGELESS) {
-        DocumentHtml.percentLabel(fraction)
-    } else {
-        DocumentHtml.pagesLabel(listOf(DocumentHtml.pageAt(document, layout, viewWidthCssPx, position.scrollTopCssPx)), pageCount)
-    }
+    val label = DocumentHtml.pagesLabel(listOf(DocumentHtml.pageAt(document, layout, viewWidthCssPx, position.scrollTopCssPx)), pageCount)
     return DocumentProgress(fraction, 1f, label)
 }
 
@@ -222,9 +217,8 @@ private fun View.widthCssPx() = width / resources.displayMetrics.density
 private fun View.shows(layout: ViewLayout): Boolean {
     val pagesAcross = if (layout.mode == PageMode.SPREAD) 2 else 1
     val widthOk = abs(layout.widthPt / layout.ptPerCssPx * pagesAcross - widthCssPx()) < SIZE_TOLERANCE_CSS_PX
-    val heightPt = layout.heightPt
-    val heightOk = !layout.mode.swiped || heightPt == null ||
-        abs(heightPt / layout.ptPerCssPx - height / resources.displayMetrics.density) < SIZE_TOLERANCE_CSS_PX
+    val heightOk = !layout.mode.swiped ||
+        abs(layout.heightPt / layout.ptPerCssPx - height / resources.displayMetrics.density) < SIZE_TOLERANCE_CSS_PX
     return widthOk && heightOk
 }
 

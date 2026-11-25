@@ -15,17 +15,17 @@ class ViewGeometryTest {
 
     @Test
     fun laysOutWholeDpInPoints() {
-        // 400 px at 1x and 96 dpi: 400 dp, the CSS reference of 0.75pt each.
-        assertEquals(ViewLayout(300f, 0.75f), ViewGeometry.layout(400, 1f, 96f, 1f))
+        // 400 x 800 px at 1x and 96 dpi: 400 x 800 dp, the CSS reference of 0.75pt each.
+        assertEquals(ViewLayout(300f, 0.75f, 600f, PageMode.SINGLE), ViewGeometry.bookLayout(400, 800, 1f, 96f, 96f, 1f))
         // Larger text leaves documents fewer points to lay out in.
-        assertEquals(ViewLayout(150f, 0.375f), ViewGeometry.layout(400, 1f, 96f, 2f))
+        assertEquals(ViewLayout(150f, 0.375f, 300f, PageMode.SINGLE), ViewGeometry.bookLayout(400, 800, 1f, 96f, 96f, 2f))
     }
 
     @Test
     fun fillsTheViewAtAnyScale() {
         // Compiled width over points per CSS px is the view's 411 dp, whatever the scale.
         for (scale in listOf(0.6f, 0.8f, 1f, 1.2f)) {
-            val layout = ViewGeometry.layout(1080, 2.625f, 428.625f, scale)
+            val layout = ViewGeometry.bookLayout(1080, 2152, 2.625f, 428.625f, 424.6f, scale)
             assertEquals(411f, layout.widthPt / layout.ptPerCssPx, 0.001f)
         }
     }
@@ -33,8 +33,9 @@ class ViewGeometryTest {
     @Test
     fun ignoresSubDpChanges() {
         // 1080 px at 2.625x is 411.43 dp and 1079 px is 411.05 dp, both 411 dp.
-        assertEquals(ViewGeometry.layout(1080, 2.625f, 428.625f, 0.8f), ViewGeometry.layout(1079, 2.625f, 428.625f, 0.8f))
-        assertNotEquals(ViewGeometry.layout(1080, 2.625f, 428.625f, 0.8f), ViewGeometry.layout(1080, 2.625f, 428.625f, 0.9f))
+        fun layout(widthPx: Int, scale: Float) = ViewGeometry.bookLayout(widthPx, 2152, 2.625f, 428.625f, 424.6f, scale)
+        assertEquals(layout(1080, 0.8f), layout(1079, 0.8f))
+        assertNotEquals(layout(1080, 0.8f), layout(1080, 0.9f))
     }
 
     @Test
@@ -53,7 +54,7 @@ class ViewGeometryTest {
         val layout = ViewGeometry.bookLayout(1080, 2152, 2.625f, 428.625f, 424.6f, 1f)
         assertEquals(PageMode.SINGLE, layout.mode)
         assertEquals(411 * layout.ptPerCssPx, layout.widthPt, 0.01f)
-        assertEquals(820 * layout.ptPerCssPx, layout.heightPt!!, 0.01f)
+        assertEquals(820 * layout.ptPerCssPx, layout.heightPt, 0.01f)
     }
 
     @Test
@@ -62,7 +63,7 @@ class ViewGeometryTest {
         val layout = ViewGeometry.bookLayout(2152, 1050, 2.625f, 428.625f, 424.6f, 1f)
         assertEquals(PageMode.SCROLLED, layout.mode)
         assertEquals(820 * layout.ptPerCssPx, layout.widthPt, 0.01f)
-        assertEquals(layout.widthPt * 1.414f, layout.heightPt!!, 0.01f)
+        assertEquals(layout.widthPt * 1.414f, layout.heightPt, 0.01f)
     }
 
     @Test
@@ -71,7 +72,7 @@ class ViewGeometryTest {
         val layout = ViewGeometry.bookLayout(2560, 1504, 2f, 274f, 274f, 1f)
         assertEquals(PageMode.SPREAD, layout.mode)
         assertEquals(640 * layout.ptPerCssPx, layout.widthPt, 0.01f)
-        assertEquals(752 * layout.ptPerCssPx, layout.heightPt!!, 0.01f)
+        assertEquals(752 * layout.ptPerCssPx, layout.heightPt, 0.01f)
     }
 
     @Test
@@ -85,21 +86,14 @@ class ViewGeometryTest {
     }
 
     @Test
-    fun laysOutPagelessDocumentsWithoutAHeight() {
-        val layout = ViewGeometry.layout(400, 1f, 96f, 1f)
-        assertEquals(PageMode.PAGELESS, layout.mode)
-        assertEquals(null, layout.heightPt)
-    }
-
-    @Test
-    fun keepsTheTextFieldWithin15cm() {
+    fun keepsTheTextFieldWithin12AndAHalfCm() {
         // Narrow pages keep the usual margin.
         assertEquals(12f, ViewGeometry.marginPt(300f), 0f)
         assertEquals(12f, ViewGeometry.marginPt(ViewGeometry.MAX_TEXT_WIDTH_PT + 24f), 0.001f)
-        // Wider ones get margins that leave exactly 15 cm (425.2pt) of text.
+        // Wider ones get margins that leave exactly 12.5 cm (354.3pt) of text.
         val wide = 800f
         val margin = ViewGeometry.marginPt(wide)
-        assertEquals(425.197f, wide - 2 * margin, 0.01f)
+        assertEquals(354.33f, wide - 2 * margin, 0.01f)
     }
 
     @Test
@@ -117,10 +111,7 @@ class ViewGeometryTest {
     fun suggestsMarginsForTheLaidOutPageWidth() {
         // A tablet on its side at 100%: each page of a spread gets its own margin.
         val spread = ViewGeometry.bookLayout(2560, 1504, 2f, 274f, 274f, 1f)
-        assertEquals(ViewGeometry.marginPt(spread.widthPt, ViewGeometry.BOOK_MAX_TEXT_WIDTH_PT), spread.marginPt, 0f)
-        // A wide pageless view (1280 dp at 0.6 scale: 1600pt) gets wide margins.
-        val pageless = ViewGeometry.layout(2560, 2f, 274f, 0.6f)
-        assertEquals(425.197f, pageless.widthPt - 2 * pageless.marginPt, 0.01f)
+        assertEquals(ViewGeometry.marginPt(spread.widthPt), spread.marginPt, 0f)
     }
 
     @Test

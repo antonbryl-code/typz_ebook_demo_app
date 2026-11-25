@@ -43,7 +43,7 @@ class TypzManifestTest {
         val contents = read("[project]\nentrypoint = \"main.typ\"", "main.typ" to "= Hello", "other.typ" to "#panic()")
         TypstBundle.open(contents).use { bundle ->
             assertEquals("main.typ", bundle.entrypoint)
-            assertEquals(1, bundle.compile(300f, 12f).pages.size)
+            assertEquals(1, bundle.compile(300f, 12f, 420f).pages.size)
         }
     }
 
@@ -58,17 +58,18 @@ class TypzManifestTest {
 
     @Test
     fun readsFormatFromToolSection() {
+        assertEquals("flexible-traditional-book", format("[tool.typzy-reader]\nformat = \"flexible-traditional-book\""))
         assertEquals("book", format("[tool.typzy-reader]\nformat = \"book\""))
         assertEquals("pageless", format("[tool.typzy-reader]\nformat = \"pageless\""))
         assertEquals("other", format("[tool.typzy-reader]\nformat = \"other\""))
     }
 
     @Test
-    fun defaultsFormatToPageless() {
-        assertEquals("pageless", format("[project]\nentrypoint = \"a.typ\""))
-        assertEquals("pageless", format("[tool.typzy-reader]\nother = 1"))
-        assertEquals("pageless", format("[tool.other]\nformat = \"book\""))
-        assertEquals("pageless", format("[project]\nformat = \"book\""))
+    fun hasNoFormatUnlessNamed() {
+        assertNull(format("[project]\nentrypoint = \"a.typ\""))
+        assertNull(format("[tool.typzy-reader]\nother = 1"))
+        assertNull(format("[tool.other]\nformat = \"book\""))
+        assertNull(format("[project]\nformat = \"book\""))
     }
 
     @Test
@@ -116,7 +117,7 @@ class TypzManifestTest {
     @Test
     fun hasNoCoverImageWithoutAUsableOne() {
         val project = "[project]\nentrypoint = \"main.typ\"\n"
-        for (extra in listOf("", "[tool.typzy-reader]\nformat = \"pageless\"", "[tool.typzy-reader]\ncover-img = 3", "[tool.typzy-reader]\ncover-img = \"../x.png\"", "[tool.typzy-reader]\ncover-img = \"missing.png\"")) {
+        for (extra in listOf("", "[tool.typzy-reader]\nformat = \"book\"", "[tool.typzy-reader]\ncover-img = 3", "[tool.typzy-reader]\ncover-img = \"../x.png\"", "[tool.typzy-reader]\ncover-img = \"missing.png\"")) {
             assertNull(extra, read(project + extra, "main.typ" to "= Hello").coverImage)
         }
     }

@@ -20,8 +20,7 @@ class TypstSection(val name: String, val pageIndex: Int, val yPt: Float)
 /**
  * A page as a standalone SVG, `width="[widthPt]pt"` with a matching viewBox, plus [textLayer]:
  * HTML with the page's text, invisible but selectable, to lay over the SVG (see
- * text_layer.rs and [DocumentHtml]). Documents that reflow have one page per manual page
- * break, each as tall as its content.
+ * text_layer.rs and [DocumentHtml]).
  */
 class TypstPage(val svg: String, val textLayer: String, val widthPt: Float, val heightPt: Float)
 
@@ -50,10 +49,9 @@ class TypstBundle private constructor(
      * process, which scans fonts), so call it off the main thread.
      *
      * The view's geometry is offered to the document as `sys.inputs` strings in Typst length
-     * syntax: `ebook-width` ("[widthPt]pt"), `ebook-margin` ("[marginPt]pt") and, for books,
-     * `ebook-height` ("[heightPt]pt"). Documents
-     * that support reflowing use them to lay out pageless at that width; others render as
-     * authored. See viewer_inputs.rs for an example `conf` function.
+     * syntax: `ebook-width` ("[widthPt]pt"), `ebook-height` ("[heightPt]pt") and `ebook-margin`
+     * ("[marginPt]pt"). Documents that support reflowing use them to lay out their pages to fit
+     * the view; others render as authored. See viewer_inputs.rs for an example `conf` function.
      *
      * Packages (`#import "@preview/…"`) come from the bundle's `packages/` directory, else from
      * the package cache given to [open]; `@preview` packages found in neither are obtained with
@@ -65,12 +63,12 @@ class TypstBundle private constructor(
     fun compile(
         widthPt: Float,
         marginPt: Float,
-        heightPt: Float? = null,
+        heightPt: Float,
         fetcher: PackageFetcher? = null,
     ): TypstDocument {
         val installed = mutableSetOf<String>()
         while (true) {
-            val result = TypstNative.compile(checkOpen(), widthPt, marginPt, heightPt ?: 0f)
+            val result = TypstNative.compile(checkOpen(), widthPt, marginPt, heightPt)
             val (sizes, svgs, layers, warnings, missing) = result
             if (missing == null) {
                 sizes as FloatArray

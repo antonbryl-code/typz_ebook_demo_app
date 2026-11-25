@@ -1,7 +1,6 @@
 package com.example.typzyreader
 
 import java.util.Locale
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -31,12 +30,10 @@ class SectionBounds(val starts: List<Float>, val end: Float) {
  * [PageMode]s.
  *
  * The viewport is `device-width`, so 1 CSS px = 1 dp, showing however many points the text size
- * calls for (see [ViewGeometry]), and a page reflowed to the view's width fills it.
+ * calls for (see [ViewGeometry]).
  *
- * Pageless documents' pages are stacked vertically without gaps. Pages wider than the view are
- * scaled down to fit; narrower ones keep their size and are centered.
- *
- * Books in [PageMode.SCROLLED] are stacked the same way, with gaps between the pages. In the
+ * In [PageMode.SCROLLED], pages are stacked vertically with gaps between them. Pages wider than
+ * the view are scaled down to fit; narrower ones keep their size and are centered. In the
  * swiped modes, pages sit side by side, one or two to a screen, and the page itself scrolls
  * sideways a whole screen at a time (CSS scroll snapping, so no JavaScript is needed).
  */
@@ -50,30 +47,25 @@ object DocumentHtml {
     /** Space between the pages of a book in [PageMode.SCROLLED], in CSS px. */
     const val BOOK_PAGE_GAP_PX = 12
 
-    /** How close to the view's width a page must be to count as reflowed, in points. */
-    private const val WIDTH_TOLERANCE_PT = 0.5f
-
     /**
      * [dark] picks the background around the pages (the pages themselves stay as the document
      * paints them). It's passed in rather than left to `prefers-color-scheme`, which the WebView
      * derives from the app's XML theme instead of the system's dark mode. [topPaddingPx] keeps
-     * the top of the document clear of a toolbar laid over the view. [viewWidthPt] is the width
-     * the document was compiled for; null treats it as not reflowed. [ptPerCssPx] sets the size
-     * pages appear at; the default is CSS's own 96 px per 72pt. In the swiped [mode]s, pages
-     * are sized to fit their place on screen instead.
+     * the top of the document clear of a toolbar laid over the view. In [PageMode.SCROLLED],
+     * [ptPerCssPx] sets the size pages appear at; the default is CSS's own 96 px per 72pt. In the
+     * swiped [mode]s, pages are sized to fit their place on screen instead.
      */
     fun build(
         document: TypstDocument,
         dark: Boolean,
+        mode: PageMode,
         topPaddingPx: Int = 0,
-        viewWidthPt: Float? = null,
         ptPerCssPx: Float = 0.75f,
-        mode: PageMode = PageMode.PAGELESS,
         bottomPaddingPx: Int = 0,
     ): String = if (mode.swiped) {
         buildSwiped(document, dark, mode)
     } else {
-        buildScrolled(document, dark, topPaddingPx, bottomPaddingPx, viewWidthPt, ptPerCssPx, mode)
+        buildScrolled(document, dark, topPaddingPx, bottomPaddingPx, ptPerCssPx)
     }
 
     private fun buildScrolled(
@@ -81,37 +73,23 @@ object DocumentHtml {
         dark: Boolean,
         topPaddingPx: Int,
         bottomPaddingPx: Int,
-        viewWidthPt: Float?,
         ptPerCssPx: Float,
-        mode: PageMode,
     ): String = buildString {
-        val gaps = if (mode == PageMode.SCROLLED) {
-            ".page { margin-bottom: ${BOOK_PAGE_GAP_PX}px; } .page:last-child { margin-bottom: 0; }"
-        } else {
-            ""
-        }
-        appendHead(dark, mode, """
+        appendHead(dark, """
               body { padding-top: ${topPaddingPx}px; padding-bottom: ${bottomPaddingPx}px; }
-              .page { margin: 0 auto; }
-              $gaps
+              .page { margin: 0 auto ${BOOK_PAGE_GAP_PX}px; }
+              .page:last-child { margin-bottom: 0; }
         """, background(dark))
         for (page in document.pages) {
             // Typst sizes pages in pt; the aspect ratio keeps scaled-down pages proportional.
-            val width = if (fillsView(page, viewWidthPt, mode)) {
-                // Fill the view exactly: its width was rounded to whole dp for compiling, so
-                // the page's own width can be a fraction of a pixel short of it.
-                "100%"
-            } else {
-                "min(100%, ${css(page.widthPt / ptPerCssPx)}px)"
-            }
-            appendPage(page, width)
+            appendPage(page, "min(100%, ${css(page.widthPt / ptPerCssPx)}px)")
             append("\n")
         }
         append("</body></html>")
     }
 
     private fun buildSwiped(document: TypstDocument, dark: Boolean, mode: PageMode): String = buildString {
-        appendHead(dark, mode, """
+        appendHead(dark, """
               /* The page itself scrolls sideways, so the WebView reports the scroll position. */
               html { overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; }
               body { display: flex; width: max-content; height: 100vh; }
@@ -142,10 +120,10 @@ object DocumentHtml {
         append("</body></html>")
     }
 
-    private fun StringBuilder.appendHead(dark: Boolean, mode: PageMode, css: String, background: String) {
+    private fun StringBuilder.appendHead(dark: Boolean, css: String, background: String) {
         val scheme = if (dark) "dark" else "light"
         // Books are laid out for the view; zooming out would only show the next pages, small.
-        val viewport = if (mode == PageMode.PAGELESS) "width=device-width, initial-scale=1" else "width=device-width, initial-scale=1, minimum-scale=1"
+        val viewport = "width=device-width, initial-scale=1, minimum-scale=1"
         append(
             """
             <!DOCTYPE html>
@@ -261,9 +239,7 @@ object DocumentHtml {
 
     /** The page at the top of the view when it's scrolled [scrollTopCssPx] down (not swiped). */
     fun pageAt(document: TypstDocument, layout: ViewLayout, viewWidthCssPx: Float, scrollTopCssPx: Float): Int {
-        fun top(page: Int) = sectionTopPx(
-            document, TypstSection("", page, 0f), viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode,
-        )
+        fun top(page: Int) = sectionTopPx(document, TypstSection("", page, 0f), viewWidthCssPx, layout.ptPerCssPx)
         return document.pages.indices.lastOrNull { top(it) <= scrollTopCssPx + 1f } ?: 0
     }
 
@@ -273,9 +249,6 @@ object DocumentHtml {
         1 -> "Page ${pages[0] + 1} of $pageCount"
         else -> "Pages ${pages.first() + 1}\u2013${pages.last() + 1} of $pageCount"
     }
-
-    /** E.g. "42%" for [fraction] 0.42. */
-    fun percentLabel(fraction: Float): String = "${(fraction * 100).roundToInt()}%"
 
     /**
      * The first page shown on [screen] of a swiped [mode]: the page whose top a reader starts at.
@@ -296,8 +269,7 @@ object DocumentHtml {
             }
             return SectionBounds(starts, document.pages.size.toFloat())
         }
-        fun top(section: TypstSection) =
-            sectionTopPx(document, section, viewWidthCssPx, layout.widthPt, layout.ptPerCssPx, layout.mode)
+        fun top(section: TypstSection) = sectionTopPx(document, section, viewWidthCssPx, layout.ptPerCssPx)
         return SectionBounds(document.sections.map(::top), top(TypstSection("", document.pages.size, 0f)))
     }
 
@@ -317,27 +289,13 @@ object DocumentHtml {
 
     /**
      * How far below the first page's top [section] starts, in CSS px at no zoom, for a view
-     * [viewWidthCssPx] wide, in [PageMode.PAGELESS] or [PageMode.SCROLLED]. Follows the page sizes
-     * that [build] asks for with the same arguments.
+     * [viewWidthCssPx] wide, in [PageMode.SCROLLED]. Follows the page sizes that [build] asks for
+     * with the same arguments.
      */
-    fun sectionTopPx(
-        document: TypstDocument,
-        section: TypstSection,
-        viewWidthCssPx: Float,
-        viewWidthPt: Float?,
-        ptPerCssPx: Float,
-        mode: PageMode = PageMode.PAGELESS,
-    ): Float {
-        val gap = if (mode == PageMode.SCROLLED) BOOK_PAGE_GAP_PX.toFloat() else 0f
+    fun sectionTopPx(document: TypstDocument, section: TypstSection, viewWidthCssPx: Float, ptPerCssPx: Float): Float {
+        val gap = BOOK_PAGE_GAP_PX.toFloat()
         // The width a page ends up at sets the scale of everything on it.
-        fun cssPxPerPt(page: TypstPage): Float {
-            val widthPx = if (fillsView(page, viewWidthPt, mode)) {
-                viewWidthCssPx
-            } else {
-                minOf(viewWidthCssPx, page.widthPt / ptPerCssPx)
-            }
-            return widthPx / page.widthPt
-        }
+        fun cssPxPerPt(page: TypstPage) = minOf(viewWidthCssPx, page.widthPt / ptPerCssPx) / page.widthPt
         val above = document.pages.take(section.pageIndex)
         val pagesAbove = above.sumOf { (it.heightPt * cssPxPerPt(it)).toDouble() }.toFloat() + above.size * gap
         val page = document.pages.getOrNull(section.pageIndex) ?: return pagesAbove
@@ -378,13 +336,6 @@ object DocumentHtml {
      * more than the gap a jump leaves above it (see DocumentView), less than a line of text.
      */
     private const val READING_LINE_PX = 16f
-
-    /**
-     * Whether [page] fills the view: in [PageMode.PAGELESS], when it's as wide as a view
-     * [viewWidthPt] wide, i.e. was reflowed to it.
-     */
-    private fun fillsView(page: TypstPage, viewWidthPt: Float?, mode: PageMode) =
-        mode == PageMode.PAGELESS && viewWidthPt != null && abs(page.widthPt - viewWidthPt) < WIDTH_TOLERANCE_PT
 
     private fun css(value: Float) = String.format(Locale.ROOT, "%.3f", value)
 }

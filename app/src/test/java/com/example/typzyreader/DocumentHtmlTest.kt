@@ -11,7 +11,7 @@ class DocumentHtmlTest {
 
     @Test
     fun stacksPagesInOrder() {
-        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(300f, 60f, "b")), ""), dark = false)
+        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(300f, 60f, "b")), ""), dark = false, mode = PageMode.SCROLLED)
         assertEquals(2, Regex("<div class=\"page\"").findAll(html).count())
         assertTrue(html.indexOf("id=%22a%22") < html.indexOf("id=%22b%22"))
     }
@@ -19,48 +19,32 @@ class DocumentHtmlTest {
     @Test
     fun sizesPagesInCssPixels() {
         // 300pt = 400 CSS px; scaled down if the view is narrower, never up.
-        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 41.5f, "a")), ""), dark = false)
+        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 41.5f, "a")), ""), dark = false, mode = PageMode.SCROLLED)
         assertTrue(html, html.contains("width: min(100%, 400.000px); aspect-ratio: 300.000 / 41.500"))
     }
 
     @Test
     fun sizesPagesForTheTextSize() {
         // At 0.5pt per CSS px, a 200pt page is 400 CSS px wide.
-        val html = DocumentHtml.build(TypstDocument(listOf(page(200f, 40f, "a")), ""), dark = false, ptPerCssPx = 0.5f)
+        val html = DocumentHtml.build(TypstDocument(listOf(page(200f, 40f, "a")), ""), dark = false, mode = PageMode.SCROLLED, ptPerCssPx = 0.5f)
         assertTrue(html, html.contains("width: min(100%, 400.000px); aspect-ratio: 200.000 / 40.000"))
     }
 
     @Test
     fun findsSectionsBelowThePagesAboveThem() {
         val document = TypstDocument(listOf(page(300f, 40f, "a"), page(300f, 60f, "b")), "")
-        // In a 400 CSS px view at 0.75pt per CSS px: 40pt and 30pt make 70pt, or 93.33 CSS px.
-        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f)
-        assertEquals(93.33f, top, 0.01f)
-    }
-
-    @Test
-    fun findsSectionsOnPagesThatFillTheView() {
-        // A reflowed page fills the view even if that's a fraction wider than its compiled width.
-        val document = TypstDocument(listOf(page(300f, 30f, "a")), "")
-        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 0, 30f), 410f, 300f, 0.75f)
-        assertEquals(41f, top, 0.01f)
-    }
-
-    @Test
-    fun findsSectionsOnWidePagesOfReflowedDocuments() {
-        // The 300pt page fills the 400 CSS px view (4/3 CSS px per point); the 600pt one is scaled
-        // down to fit it (2/3 CSS px per point).
-        val document = TypstDocument(listOf(page(300f, 30f, "a"), page(600f, 60f, "b")), "")
-        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f)
-        assertEquals(60f, top, 0.01f)
+        // In a 400 CSS px view at 0.75pt per CSS px: 40pt and 30pt make 70pt, or 93.33 CSS px,
+        // plus the gap between the pages.
+        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 0.75f)
+        assertEquals(105.33f, top, 0.01f)
     }
 
     @Test
     fun findsSectionsOnPagesScaledDownToFit() {
-        // Not reflowed: a 600pt page in a 400 CSS px view is at 2/3 CSS px per point.
+        // A 600pt page in a 400 CSS px view is at 2/3 CSS px per point.
         val document = TypstDocument(listOf(page(600f, 60f, "a"), page(600f, 60f, "b")), "")
-        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f)
-        assertEquals(60f, top, 0.01f)
+        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 0.75f)
+        assertEquals(60f + 12f, top, 0.01f)
     }
 
     // Sections starting 100, 600 and 1100 CSS px down, in an 800 px view with a 64 px toolbar.
@@ -137,17 +121,17 @@ class DocumentHtmlTest {
     @Test
     fun scrollsBookPagesWithGapsBetweenThem() {
         val document = TypstDocument(listOf(page(300f, 424f, "a"), page(300f, 424f, "b")), "")
-        val html = DocumentHtml.build(document, dark = false, viewWidthPt = 300f, mode = PageMode.SCROLLED)
-        assertTrue(html, html.contains(".page { margin-bottom: 12px; } .page:last-child { margin-bottom: 0; }"))
+        val html = DocumentHtml.build(document, dark = false, mode = PageMode.SCROLLED)
+        assertTrue(html, html.contains(".page { margin: 0 auto 12px; }\n.page:last-child { margin-bottom: 0; }"))
         assertTrue(html, html.contains("width: min(100%, 400.000px)"))
         // Sections below the first page are lower by the gap above them.
-        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 300f, 0.75f, PageMode.SCROLLED)
+        val top = DocumentHtml.sectionTopPx(document, TypstSection("S", 1, 30f), 400f, 0.75f)
         assertEquals(424f * 4 / 3 + 12f + 40f, top, 0.01f)
     }
 
     @Test
     fun showsPagesAsLazyImages() {
-        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a")), ""), dark = false)
+        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a")), ""), dark = false, mode = PageMode.SCROLLED)
         assertTrue(html, html.contains(
             "<img class=\"svg\" alt=\"\" loading=\"lazy\" decoding=\"async\" " +
                 "src=\"data:image/svg+xml,%3Csvg id=%22a%22 width=%22300.0pt%22%3E%3C/svg%3E\">"
@@ -164,7 +148,7 @@ class DocumentHtmlTest {
     @Test
     fun keepsHugePagesInline() {
         val huge = TypstPage("<svg id=\"big\">" + "x".repeat(1_500_001) + "</svg>", "", 300f, 40f)
-        val html = DocumentHtml.build(TypstDocument(listOf(huge), ""), dark = false)
+        val html = DocumentHtml.build(TypstDocument(listOf(huge), ""), dark = false, mode = PageMode.SCROLLED)
         assertTrue(html.contains("<svg id=\"big\">"))
         assertFalse(html.contains("data:image/svg+xml"))
     }
@@ -174,9 +158,6 @@ class DocumentHtmlTest {
         assertEquals("Page 3 of 12", DocumentHtml.pagesLabel(listOf(2), 12))
         assertEquals("Pages 2–3 of 12", DocumentHtml.pagesLabel(listOf(1, 2), 12))
         assertEquals("", DocumentHtml.pagesLabel(emptyList(), 12))
-        assertEquals("0%", DocumentHtml.percentLabel(0f))
-        assertEquals("42%", DocumentHtml.percentLabel(0.42f))
-        assertEquals("100%", DocumentHtml.percentLabel(1f))
     }
 
     @Test
@@ -192,7 +173,7 @@ class DocumentHtmlTest {
 
     @Test
     fun leavesRoomForTheBottomBar() {
-        val html = DocumentHtml.build(TypstDocument(emptyList(), ""), dark = false, topPaddingPx = 64, bottomPaddingPx = 64)
+        val html = DocumentHtml.build(TypstDocument(emptyList(), ""), dark = false, mode = PageMode.SCROLLED, topPaddingPx = 64, bottomPaddingPx = 64)
         assertTrue(html, html.contains("body { padding-top: 64px; padding-bottom: 64px; }"))
         // No thin scrollbars.
         assertTrue(html, html.contains("scrollbar-width: none"))
@@ -238,32 +219,15 @@ class DocumentHtmlTest {
     }
 
     @Test
-    fun leavesNoGapsBetweenPages() {
-        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 40f, "a"), page(300f, 60f, "b")), ""), dark = false)
-        assertFalse(html, html.contains("margin-bottom"))
-        assertTrue(html, html.contains("margin: 0 auto;"))
-    }
-
-    @Test
-    fun scalesWiderPagesOfReflowedDocumentsToFit() {
-        // The 300pt page matches the view, so the document reflowed; its 600pt page is scaled down.
-        val document = TypstDocument(listOf(page(300f, 40f, "a"), page(600f, 60f, "b")), "")
-        val html = DocumentHtml.build(document, dark = false, viewWidthPt = 300f)
-        // Reflowed pages fill the view exactly, whatever its fractional width in CSS px.
-        assertTrue(html, html.contains("width: 100%; aspect-ratio: 300.000 / 40.000"))
-        assertTrue(html, html.contains("width: min(100%, 800.000px); aspect-ratio: 600.000 / 60.000"))
-    }
-
-    @Test
-    fun scalesWidePagesOfDocumentsRenderedAsAuthored() {
-        // No page matches the 300pt view: an A4 document laid out for print.
-        val html = DocumentHtml.build(TypstDocument(listOf(page(595.28f, 841.89f, "a")), ""), dark = false, viewWidthPt = 300f)
+    fun scalesWidePagesDownToFit() {
+        // E.g. an A4 document laid out for print.
+        val html = DocumentHtml.build(TypstDocument(listOf(page(595.28f, 841.89f, "a")), ""), dark = false, mode = PageMode.SCROLLED)
         assertTrue(html, html.contains("width: min(100%, 793.707px); aspect-ratio: 595.280 / 841.890"))
     }
 
     @Test
     fun laysTextLayerOverEachPage() {
-        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 41.5f, "a")), ""), dark = false)
+        val html = DocumentHtml.build(TypstDocument(listOf(page(300f, 41.5f, "a")), ""), dark = false, mode = PageMode.SCROLLED)
         // After the SVG, inside the page, with the page's point unit for its lengths.
         assertTrue(html, html.contains("--u: calc(100cqw / 300.000)\"><img class=\"svg\" alt=\"\" loading=\"lazy\""))
         assertTrue(html, html.contains("%3C/svg%3E\"><div class=\"t\"><div class=\"l\">a</div></div></div>"))
@@ -272,8 +236,8 @@ class DocumentHtmlTest {
     @Test
     fun followsDarkMode() {
         val empty = TypstDocument(emptyList(), "")
-        val light = DocumentHtml.build(empty, dark = false)
-        val dark = DocumentHtml.build(empty, dark = true)
+        val light = DocumentHtml.build(empty, dark = false, mode = PageMode.SCROLLED)
+        val dark = DocumentHtml.build(empty, dark = true, mode = PageMode.SCROLLED)
         assertTrue(light, light.contains("background: #e8e8e8") && light.contains("content=\"light\""))
         assertTrue(dark, dark.contains("background: #202124") && dark.contains("content=\"dark\""))
     }
@@ -281,13 +245,13 @@ class DocumentHtmlTest {
     @Test
     fun leavesRoomForToolbar() {
         val empty = TypstDocument(emptyList(), "")
-        assertTrue(DocumentHtml.build(empty, dark = false).contains("body { padding-top: 0px; padding-bottom: 0px; }"))
-        assertTrue(DocumentHtml.build(empty, dark = false, topPaddingPx = 64).contains("body { padding-top: 64px; padding-bottom: 0px; }"))
+        assertTrue(DocumentHtml.build(empty, dark = false, mode = PageMode.SCROLLED).contains("body { padding-top: 0px; padding-bottom: 0px; }"))
+        assertTrue(DocumentHtml.build(empty, dark = false, mode = PageMode.SCROLLED, topPaddingPx = 64).contains("body { padding-top: 64px; padding-bottom: 0px; }"))
     }
 
     @Test
     fun usesDeviceWidthViewport() {
-        val html = DocumentHtml.build(TypstDocument(emptyList(), ""), dark = false)
-        assertTrue(html.contains("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"))
+        val html = DocumentHtml.build(TypstDocument(emptyList(), ""), dark = false, mode = PageMode.SCROLLED)
+        assertTrue(html.contains("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, minimum-scale=1\">"))
     }
 }

@@ -174,8 +174,6 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     var uri by rememberSaveable { mutableStateOf<Uri?>(null) }
     // A file asked to be opened, until its format is checked; a refused one leaves [uri] alone.
     var requestedUri by rememberSaveable { mutableStateOf(initialUri) }
-    // The format of the document at [uri], as its manifest names it.
-    var format by rememberSaveable { mutableStateOf(TypzFormat.PAGELESS) }
     var refusal by remember { mutableStateOf<String?>(null) }
     var cover by remember { mutableStateOf<ImageBitmap?>(null) }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -193,13 +191,8 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     val layout = viewSize?.let { size ->
         val metrics = context.resources.displayMetrics
         val dpi = ViewGeometry.physicalDpi(metrics.xdpi, metrics.densityDpi)
-        val scale = textSizePercent / 100f
-        if (format == TypzFormat.BOOK) {
-            val verticalDpi = ViewGeometry.physicalDpi(metrics.ydpi, metrics.densityDpi)
-            ViewGeometry.bookLayout(size.width, size.height, density, dpi, verticalDpi, scale)
-        } else {
-            ViewGeometry.layout(size.width, density, dpi, scale)
-        }
+        val verticalDpi = ViewGeometry.physicalDpi(metrics.ydpi, metrics.densityDpi)
+        ViewGeometry.bookLayout(size.width, size.height, density, dpi, verticalDpi, textSizePercent / 100f)
     }
     var content by remember { mutableStateOf<ViewerContent>(ViewerContent.Loading) }
     var recompiling by remember { mutableStateOf(false) }
@@ -239,14 +232,8 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
 
     LaunchedEffect(requestedUri) {
         val requested = requestedUri ?: return@LaunchedEffect
-        val named = withContext(Dispatchers.IO) { formatOf(context, requested) }
-        val known = TypzFormat.of(named)
-        if (known != null) {
-            format = known
-            uri = requested
-        } else {
-            refusal = TypzArchive.formatProblem(named)
-        }
+        val problem = withContext(Dispatchers.IO) { formatProblemOf(context, requested) }
+        if (problem == null) uri = requested else refusal = problem
         requestedUri = null
     }
 
@@ -801,12 +788,15 @@ private fun describe(shown: ViewerContent.Document, currentSection: Int?): Strin
         pages.joinToString { "%.0f × %.0f pt".format(it.widthPt, it.heightPt) } + reading.orEmpty()
 }
 
-/** The format named by the manifest of the file at [uri] (see [TypzArchive.format]). */
-private fun formatOf(context: Context, uri: Uri): String = try {
-    context.contentResolver.openInputStream(uri)?.use { TypzArchive.format(it) } ?: TypzFormat.PAGELESS.value
+/**
+ * Why the format named by the manifest of the file at [uri] can't be opened (see
+ * [TypzArchive.formatProblem]), null if it can.
+ */
+private fun formatProblemOf(context: Context, uri: Uri): String? = try {
+    context.contentResolver.openInputStream(uri)?.use { TypzArchive.formatProblem(TypzArchive.format(it)) }
 } catch (_: Exception) {
-    // E.g. not a zip or a malformed manifest: opening it reports that, in place of the document.
-    TypzFormat.PAGELESS.value
+    // E.g. not a zip, or no or a malformed manifest: opening it reports that, in place of the document.
+    null
 }
 
 private fun openBundle(context: Context, uri: Uri): TypstBundle {

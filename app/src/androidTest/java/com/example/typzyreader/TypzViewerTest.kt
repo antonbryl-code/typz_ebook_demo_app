@@ -76,18 +76,25 @@ class TypzViewerTest {
         return "1 page laid out for a ${"%.2f".format(widthPt)}pt wide view: "
     }
 
+    /**
+     * Writes a .typz whose manifest names [format] (none if null) and has [tool] in its
+     * `[tool.typzy-reader]` section.
+     */
     private fun writeTypz(
         mainTyp: String = """
-            #let width = sys.inputs.at("ebook-width", default: none)
-            #set page(width: eval(width), height: auto) if width != none
+            #set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")))
             Hello
         """.trimIndent(),
-        manifestExtra: String = "",
+        format: String? = "flexible-traditional-book",
+        tool: String = "",
         name: String = "viewer-test.typz",
         extraFiles: Map<String, ByteArray> = emptyMap(),
     ): File {
+        val toolSection = format?.let { "format = \"$it\"\n" }.orEmpty() + tool
+        val manifest = "[project]\nentrypoint = \"main.typ\"\n" +
+            if (toolSection.isEmpty()) "" else "[tool.typzy-reader]\n$toolSection"
         val files = mapOf(
-            "typst.toml" to "[project]\nentrypoint = \"main.typ\"\n$manifestExtra".toByteArray(),
+            "typst.toml" to manifest.toByteArray(),
             "main.typ" to mainTyp.toByteArray(),
         ) + extraFiles
         val file = File(context.cacheDir, name)
@@ -146,9 +153,12 @@ class TypzViewerTest {
         }
     }
 
-    /** Opens a .typz in [format] and expects a dialog with [message] and no document behind it. */
-    private fun assertRefused(format: String, message: String) {
-        val uri = Uri.fromFile(writeTypz(manifestExtra = "[tool.typzy-reader]\nformat = \"$format\"\n"))
+    /**
+     * Opens a .typz in [format] (none if null) and expects a dialog with [message] and no
+     * document behind it.
+     */
+    private fun assertRefused(format: String?, message: String) {
+        val uri = Uri.fromFile(writeTypz(format = format))
         compose.setContent {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
@@ -172,7 +182,7 @@ class TypzViewerTest {
             #pagebreak()
             = Two
         """.trimIndent()
-        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, manifestExtra = "[tool.typzy-reader]\nformat = \"book\"\n"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, format = "book"))
         compose.setContent {
             // Taller than 1.25 times its width: one page at a time, as large as the view.
             Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
@@ -199,7 +209,7 @@ class TypzViewerTest {
               margin: eval(sys.inputs.at("ebook-margin")),
             )
         """.trimIndent() + "\n" + chapters
-        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, manifestExtra = "[tool.typzy-reader]\nformat = \"book\"\n"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, format = "book"))
         var portrait by mutableStateOf(true)
         compose.setContent {
             // Like a phone turning: one page at a time upright, pages scrolled sideways.
@@ -231,19 +241,13 @@ class TypzViewerTest {
         }
     }
 
-    /**
-     * Opens a four-chapter document (a book, or pageless), jumps to Chapter 3, changes the text
-     * size in the settings, and expects the reader still in Chapter 3 at the new size.
-     */
-    private fun assertTextSizeChangeKeepsThePlace(book: Boolean) {
+    @Test
+    fun keepsTheReadersPlaceWhenTheTextSizeChanges() {
+        // A four-chapter book: jump to Chapter 3, change the text size in the settings, and the
+        // reader is still in Chapter 3 at the new size.
         val chapters = (1..4).joinToString("\n") { "#pagebreak(weak: true)\n= Chapter $it\n#lorem(500)" }
-        val setup = if (book) {
-            """#set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")), margin: eval(sys.inputs.at("ebook-margin")))"""
-        } else {
-            """#set page(width: eval(sys.inputs.at("ebook-width")), height: auto, margin: eval(sys.inputs.at("ebook-margin")))"""
-        }
-        val manifest = if (book) "[tool.typzy-reader]\nformat = \"book\"\n" else ""
-        val uri = Uri.fromFile(writeTypz(mainTyp = setup + "\n" + chapters, manifestExtra = manifest))
+        val setup = """#set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")), margin: eval(sys.inputs.at("ebook-margin")))"""
+        val uri = Uri.fromFile(writeTypz(mainTyp = setup + "\n" + chapters, format = "book"))
         compose.setContent {
             Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
         }
@@ -270,16 +274,6 @@ class TypzViewerTest {
     }
 
     @Test
-    fun keepsTheReadersPlaceWhenTheTextSizeChangesInABook() {
-        assertTextSizeChangeKeepsThePlace(book = true)
-    }
-
-    @Test
-    fun keepsTheReadersPlaceWhenTheTextSizeChangesInAPagelessDocument() {
-        assertTextSizeChangeKeepsThePlace(book = false)
-    }
-
-    @Test
     fun turnsBookPagesWithTheBottomSlider() {
         val chapters = (1..4).joinToString("\n") { "#pagebreak(weak: true)\n= Chapter $it\n#lorem(300)" }
         val mainTyp = """
@@ -289,7 +283,7 @@ class TypzViewerTest {
               margin: eval(sys.inputs.at("ebook-margin")),
             )
         """.trimIndent() + "\n" + chapters
-        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, manifestExtra = "[tool.typzy-reader]\nformat = \"book\"\n"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, format = "book"))
         compose.setContent {
             Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
         }
@@ -312,8 +306,18 @@ class TypzViewerTest {
     }
 
     @Test
-    fun opensExplicitPagelessFormat() {
-        val uri = Uri.fromFile(writeTypz(manifestExtra = "[tool.typzy-reader]\nformat = \"pageless\"\n"))
+    fun refusesThePagelessFormatAsDeprecated() {
+        assertRefused("pageless", "The \"pageless\" format is deprecated.")
+    }
+
+    @Test
+    fun refusesManifestsWithoutAFormat() {
+        assertRefused(null, "The manifest must specify format, e.g. flexible-traditional-book")
+    }
+
+    @Test
+    fun opensTheBookSynonym() {
+        val uri = Uri.fromFile(writeTypz(format = "book"))
         compose.setContent {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
@@ -357,8 +361,7 @@ class TypzViewerTest {
     @Test
     fun highlightsTheSectionBeingRead() {
         val mainTyp = """
-            #let width = sys.inputs.at("ebook-width", default: none)
-            #set page(width: eval(width), height: auto) if width != none
+            #set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")))
             = Chapter One
             #lorem(600)
             = Chapter Two
@@ -368,7 +371,7 @@ class TypzViewerTest {
         compose.setContent {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
-        waitForDocument("1 page laid out")
+        waitForDocument("pages laid out")
         showBars() // straight away: a tap while the document is still being set up mustn't lose its place
         compose.onNodeWithContentDescription("Book contents").performClick()
         compose.waitUntil(timeoutMillis = 5_000) {
@@ -473,7 +476,7 @@ class TypzViewerTest {
     }
 
     @Test
-    fun pagelessDocumentsStartWithTheBarsHiddenAndATapTogglesThem() {
+    fun documentsStartWithTheBarsHiddenAndATapTogglesThem() {
         val uri = Uri.fromFile(writeTypz())
         compose.setContent {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
@@ -541,7 +544,7 @@ class TypzViewerTest {
         open(first)
         val second = writeTypz(
             mainTyp = "#set document(title: \"Second Book\")\nHello",
-            manifestExtra = "[tool.typzy-reader]\ncover-img = \"cover.png\"\n",
+            tool = "cover-img = \"cover.png\"\n",
             name = "recent-2.typz",
             extraFiles = mapOf("cover.png" to cover),
         )

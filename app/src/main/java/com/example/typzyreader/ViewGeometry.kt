@@ -2,11 +2,8 @@ package com.example.typzyreader
 
 import kotlin.math.roundToInt
 
-/** How a document's pages are shown. */
+/** How a book's pages are shown. */
 enum class PageMode {
-    /** Pageless documents: pages as wide as the view (or as authored), stacked without gaps. */
-    PAGELESS,
-
     /** A book, a page filling the view at a time, turned by swiping sideways. */
     SINGLE,
 
@@ -21,16 +18,16 @@ enum class PageMode {
 }
 
 /**
- * How documents are laid out for the view: the page width in Typst points offered to documents
- * (see [TypstBundle.compile]), the page height for books (null for pageless documents), how many
- * of those points one CSS px shows (see [DocumentHtml]), how the pages are shown, and the margin
- * suggested to documents (see [ViewGeometry.marginPt]).
+ * How documents are laid out for the view: the page width and height in Typst points offered to
+ * documents (see [TypstBundle.compile]), how many of those points one CSS px shows (see
+ * [DocumentHtml]), how the pages are shown, and the margin suggested to documents (see
+ * [ViewGeometry.marginPt]).
  */
 data class ViewLayout(
     val widthPt: Float,
     val ptPerCssPx: Float,
-    val heightPt: Float? = null,
-    val mode: PageMode = PageMode.PAGELESS,
+    val heightPt: Float,
+    val mode: PageMode,
     val marginPt: Float = ViewGeometry.marginPt(widthPt),
 )
 
@@ -39,18 +36,14 @@ object ViewGeometry {
     /** Margin suggested to documents on every side, in points, unless pages are too wide for it. */
     const val MARGIN_PT = 12f
 
-    /** The widest text field (page width less both margins) suggested to pageless documents: 15 cm, in points. */
-    const val MAX_TEXT_WIDTH_PT = 15f / 2.54f * 72f
-
-    /** The widest text field suggested to books, on each page: 12.5 cm, in points. */
-    const val BOOK_MAX_TEXT_WIDTH_PT = 12.5f / 2.54f * 72f
+    /** The widest text field (page width less both margins) suggested on each page: 12.5 cm, in points. */
+    const val MAX_TEXT_WIDTH_PT = 12.5f / 2.54f * 72f
 
     /**
      * The margin suggested on every side of a page [widthPt] wide: [MARGIN_PT], or more, so that
-     * lines are at most [maxTextWidthPt] long (in the document's own units, so at any text size).
+     * lines are at most [MAX_TEXT_WIDTH_PT] long (in the document's own units, so at any text size).
      */
-    fun marginPt(widthPt: Float, maxTextWidthPt: Float = MAX_TEXT_WIDTH_PT): Float =
-        maxOf(MARGIN_PT, (widthPt - maxTextWidthPt) / 2)
+    fun marginPt(widthPt: Float): Float = maxOf(MARGIN_PT, (widthPt - MAX_TEXT_WIDTH_PT) / 2)
 
     /** Below this width-to-height ratio, a book shows one page filling the view. */
     const val SINGLE_PAGE_MAX_ASPECT = 0.8f
@@ -62,20 +55,12 @@ object ViewGeometry {
     const val SCROLLED_PAGE_ASPECT = 1.414f
 
     /**
-     * The layout for a pageless document in a view [widthPx] pixels wide. Rounding to whole dp
-     * keeps sub-pixel layout jitter from triggering recompiles. See [ptPerCssPx] for the other
-     * parameters.
-     */
-    fun layout(widthPx: Int, density: Float, dpi: Float, scale: Float): ViewLayout {
-        val ptPerCssPx = ptPerCssPx(density, dpi, scale)
-        return ViewLayout((widthPx / density).roundToInt() * ptPerCssPx, ptPerCssPx)
-    }
-
-    /**
      * The layout for a book in a view [widthPx] by [heightPx] pixels, on a screen of [dpi] and
      * [verticalDpi] physical pixels per inch across and down. A view narrower than 0.8 times its
      * height shows one page at a time; a wider one scrolls pages if it's at most 9 cm tall, and
-     * shows two-page spreads otherwise. Lines are kept to [BOOK_MAX_TEXT_WIDTH_PT].
+     * shows two-page spreads otherwise. Lines are kept to [MAX_TEXT_WIDTH_PT]. Rounding to whole
+     * dp keeps sub-pixel layout jitter from triggering recompiles. See [ptPerCssPx] for the other
+     * parameters.
      */
     fun bookLayout(widthPx: Int, heightPx: Int, density: Float, dpi: Float, verticalDpi: Float, scale: Float): ViewLayout {
         val ptPerCssPx = ptPerCssPx(density, dpi, scale)
@@ -87,7 +72,7 @@ object ViewGeometry {
             heightCm <= SCROLLED_MAX_HEIGHT_CM -> Triple(widthPt, widthPt * SCROLLED_PAGE_ASPECT, PageMode.SCROLLED)
             else -> Triple(widthPt / 2, heightPt, PageMode.SPREAD)
         }
-        return ViewLayout(pageWidthPt, ptPerCssPx, pageHeightPt, mode, marginPt(pageWidthPt, BOOK_MAX_TEXT_WIDTH_PT))
+        return ViewLayout(pageWidthPt, ptPerCssPx, pageHeightPt, mode)
     }
 
     /**

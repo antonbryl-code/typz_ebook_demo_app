@@ -2,11 +2,10 @@
 //!
 //! The viewer never changes a document's page setup itself. Documents that support reflowing
 //! read these inputs (all strings in Typst length syntax, as `typst compile --input` would pass
-//! them) and lay themselves out pageless; documents that ignore them render as authored:
-//! - `ebook-width`: the width of the view, e.g. `"300pt"`
+//! them) and lay out their pages to fit the view; documents that ignore them render as authored:
+//! - `ebook-width`: the width of a page, e.g. `"300pt"`
+//! - `ebook-height`: the height of a page, e.g. `"420pt"`
 //! - `ebook-margin`: the margin the viewer suggests on every side, e.g. `"12pt"`
-//! - `ebook-height`: for documents in the `book` format only, the height of a page, e.g.
-//!   `"420pt"`; their pages are then `ebook-width` by `ebook-height`
 //!
 //! For example:
 //! ```typ
@@ -16,7 +15,8 @@
 //!     set page(paper: paper, margin: margin)
 //!     doc
 //!   } else {
-//!     set page(width: eval(width), height: auto, margin: eval(sys.inputs.at("ebook-margin")))
+//!     let height = eval(sys.inputs.at("ebook-height"))
+//!     set page(width: eval(width), height: height, margin: eval(sys.inputs.at("ebook-margin")))
 //!     doc
 //!   }
 //! }
@@ -32,8 +32,7 @@ use typst::{Library, LibraryExt};
 pub struct ViewerGeometry {
     pub width: f32,
     pub margin: f32,
-    /// The page height, for books; pageless documents don't get one.
-    pub height: Option<f32>,
+    pub height: f32,
 }
 
 /// The standard library with `sys.inputs` describing `geometry`.
@@ -41,9 +40,7 @@ pub fn library(geometry: ViewerGeometry) -> Library {
     let mut inputs = Dict::new();
     inputs.insert("ebook-width".into(), length(geometry.width));
     inputs.insert("ebook-margin".into(), length(geometry.margin));
-    if let Some(height) = geometry.height {
-        inputs.insert("ebook-height".into(), length(height));
-    }
+    inputs.insert("ebook-height".into(), length(geometry.height));
     Library::builder().with_inputs(inputs).build()
 }
 
