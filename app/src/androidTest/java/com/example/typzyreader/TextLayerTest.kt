@@ -13,7 +13,7 @@ import java.io.File
 class TextLayerTest {
     private fun compile(text: String): TypstDocument {
         val files = mapOf("main.typ" to text.toByteArray())
-        return TypstBundle.open(TypzContents("main.typ", files)).use { it.compile(300f, 12f, 420f) }
+        return TypstBundle.open(TypzContents("main.typ", files)).use { it.compile(300f, 420f) }
     }
 
     /** Word or whitespace boxes: `<span style="width:calc(W*var(--u));letter-spacing:…">TEXT</span>`. */

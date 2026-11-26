@@ -825,7 +825,7 @@ private fun requiredFonts(contents: TypzContents, fonts: GoogleFonts): List<Byte
 
 private fun compile(bundle: TypstBundle, layout: ViewLayout): ViewerContent = try {
     ViewerContent.Document(
-        bundle.compile(layout.widthPt, layout.marginPt, layout.heightPt, TypstUniverse),
+        bundle.compile(layout.widthPt, layout.heightPt, TypstUniverse),
         layout,
     )
 } catch (e: TypstCompileException) {

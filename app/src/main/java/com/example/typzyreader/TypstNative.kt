@@ -50,7 +50,7 @@ internal object TypstNative {
     /** Size in bytes of the file at [path], or -1 if the bundle has no such file. */
     external fun bundleFileSize(handle: Long, path: String): Long
     /**
-     * Compiles the bundle, offering [widthPt], [marginPt] and [heightPt] through `sys.inputs`,
+     * Compiles the bundle, offering [widthPt] and [heightPt] through `sys.inputs`,
      * and renders it.
      * Returns `[sizes: FloatArray, svgs: Array<String>, textLayers: Array<String>, warnings: String,
      * null, title: String?, sections: Array<String>, sectionPositions: FloatArray]`, sizes being
@@ -59,7 +59,7 @@ internal object TypstNative {
      * null, null, missing: Array<String>, null, null, null]` with specs like `@preview/cetz:0.3.4`
      * instead. Throws [TypstCompileException] on errors.
      */
-    external fun compile(handle: Long, widthPt: Float, marginPt: Float, heightPt: Float): Array<Any?>
+    external fun compile(handle: Long, widthPt: Float, heightPt: Float): Array<Any?>
 
     /** Unpacks a package's `.tar.gz` (as served by Typst Universe) into [cacheDir]. */
     external fun installPackage(cacheDir: String, spec: String, archive: ByteArray)

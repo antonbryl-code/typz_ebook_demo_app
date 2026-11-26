@@ -47,7 +47,7 @@ class TypzManifestTest {
         val contents = read("[project]\nentrypoint = \"main.typ\"" + section, "main.typ" to "= Hello", "other.typ" to "#panic()")
         TypstBundle.open(contents).use { bundle ->
             assertEquals("main.typ", bundle.entrypoint)
-            assertEquals(1, bundle.compile(300f, 12f, 420f).pages.size)
+            assertEquals(1, bundle.compile(300f, 420f).pages.size)
         }
     }
 

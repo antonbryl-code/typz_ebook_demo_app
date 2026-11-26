@@ -204,7 +204,7 @@ class TypzViewerTest {
             #set page(
               width: eval(sys.inputs.at("ebook-width")),
               height: eval(sys.inputs.at("ebook-height")),
-              margin: eval(sys.inputs.at("ebook-margin")),
+              margin: 12pt,
             )
         """.trimIndent() + "\n" + chapters
         val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp))
@@ -244,7 +244,7 @@ class TypzViewerTest {
         // A four-chapter book: jump to Chapter 3, change the text size in the settings, and the
         // reader is still in Chapter 3 at the new size.
         val chapters = (1..4).joinToString("\n") { "#pagebreak(weak: true)\n= Chapter $it\n#lorem(500)" }
-        val setup = """#set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")), margin: eval(sys.inputs.at("ebook-margin")))"""
+        val setup = """#set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")), margin: 12pt)"""
         val uri = Uri.fromFile(writeTypz(mainTyp = setup + "\n" + chapters))
         compose.setContent {
             Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
@@ -278,7 +278,7 @@ class TypzViewerTest {
             #set page(
               width: eval(sys.inputs.at("ebook-width")),
               height: eval(sys.inputs.at("ebook-height")),
-              margin: eval(sys.inputs.at("ebook-margin")),
+              margin: 12pt,
             )
         """.trimIndent() + "\n" + chapters
         val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp))

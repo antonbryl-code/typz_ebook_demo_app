@@ -20,31 +20,17 @@ enum class PageMode {
 /**
  * How documents are laid out for the view: the page width and height in Typst points offered to
  * documents (see [TypstBundle.compile]), how many of those points one CSS px shows (see
- * [DocumentHtml]), how the pages are shown, and the margin suggested to documents (see
- * [ViewGeometry.marginPt]).
+ * [DocumentHtml]), and how the pages are shown.
  */
 data class ViewLayout(
     val widthPt: Float,
     val ptPerCssPx: Float,
     val heightPt: Float,
     val mode: PageMode,
-    val marginPt: Float = ViewGeometry.marginPt(widthPt),
 )
 
 /** Geometry offered to documents, derived from the document view's size and the screen. */
 object ViewGeometry {
-    /** Margin suggested to documents on every side, in points, unless pages are too wide for it. */
-    const val MARGIN_PT = 12f
-
-    /** The widest text field (page width less both margins) suggested on each page: 12.5 cm, in points. */
-    const val MAX_TEXT_WIDTH_PT = 12.5f / 2.54f * 72f
-
-    /**
-     * The margin suggested on every side of a page [widthPt] wide: [MARGIN_PT], or more, so that
-     * lines are at most [MAX_TEXT_WIDTH_PT] long (in the document's own units, so at any text size).
-     */
-    fun marginPt(widthPt: Float): Float = maxOf(MARGIN_PT, (widthPt - MAX_TEXT_WIDTH_PT) / 2)
-
     /** Below this width-to-height ratio, a book shows one page filling the view. */
     const val SINGLE_PAGE_MAX_ASPECT = 0.8f
 
@@ -58,7 +44,7 @@ object ViewGeometry {
      * The layout for a book in a view [widthPx] by [heightPx] pixels, on a screen of [dpi] and
      * [verticalDpi] physical pixels per inch across and down. A view narrower than 0.8 times its
      * height shows one page at a time; a wider one scrolls pages if it's at most 9 cm tall, and
-     * shows two-page spreads otherwise. Lines are kept to [MAX_TEXT_WIDTH_PT]. Rounding to whole
+     * shows two-page spreads otherwise. Rounding to whole
      * dp keeps sub-pixel layout jitter from triggering recompiles. See [ptPerCssPx] for the other
      * parameters.
      */

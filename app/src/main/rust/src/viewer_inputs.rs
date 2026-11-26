@@ -5,9 +5,8 @@
 //! them) and lay out their pages to fit the view; documents that ignore them render as authored:
 //! - `ebook-width`: the width of a page, e.g. `"300pt"`
 //! - `ebook-height`: the height of a page, e.g. `"420pt"`
-//! - `ebook-margin`: the margin the viewer suggests on every side, e.g. `"12pt"`
 //!
-//! For example:
+//! Margins are the document's own choice, made from the page's dimensions. For example:
 //! ```typ
 //! #let conf(doc, paper: "a4", margin: 2.5cm) = {
 //!   let width = sys.inputs.at("ebook-width", default: none)
@@ -15,8 +14,10 @@
 //!     set page(paper: paper, margin: margin)
 //!     doc
 //!   } else {
+//!     let width = eval(width)
 //!     let height = eval(sys.inputs.at("ebook-height"))
-//!     set page(width: eval(width), height: height, margin: eval(sys.inputs.at("ebook-margin")))
+//!     // At least 12pt, and wide enough to keep lines within 12.5 cm.
+//!     set page(width: width, height: height, margin: calc.max(12pt, (width - 12.5cm) / 2))
 //!     doc
 //!   }
 //! }
@@ -31,7 +32,6 @@ use typst::{Library, LibraryExt};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ViewerGeometry {
     pub width: f32,
-    pub margin: f32,
     pub height: f32,
 }
 
@@ -39,7 +39,6 @@ pub struct ViewerGeometry {
 pub fn library(geometry: ViewerGeometry) -> Library {
     let mut inputs = Dict::new();
     inputs.insert("ebook-width".into(), length(geometry.width));
-    inputs.insert("ebook-margin".into(), length(geometry.margin));
     inputs.insert("ebook-height".into(), length(geometry.height));
     Library::builder().with_inputs(inputs).build()
 }

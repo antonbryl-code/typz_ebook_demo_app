@@ -73,7 +73,7 @@ class PackagesTest {
     fun usesBundledPackages() {
         val bundled = greetPackage().map { (path, text) -> "packages/preview/greet/0.1.0/$path" to text }
         // No cache and no fetcher: bundled packages work offline.
-        val document = open(main, *bundled.toTypedArray(), cache = null).use { it.compile(300f, 12f, 420f) }
+        val document = open(main, *bundled.toTypedArray(), cache = null).use { it.compile(300f, 420f) }
         assertEquals("HELLO WORLD", text(document))
     }
 
@@ -81,11 +81,11 @@ class PackagesTest {
     fun downloadsMissingPackagesOnceAndCachesThem() {
         val fetched = mutableListOf<String>()
         val fetcher = PackageFetcher { spec -> fetched += spec; tarGz(greetPackage()) }
-        assertEquals("HELLO WORLD", text(open(main).use { it.compile(300f, 12f, 420f, fetcher = fetcher) }))
+        assertEquals("HELLO WORLD", text(open(main).use { it.compile(300f, 420f, fetcher = fetcher) }))
         assertEquals(listOf("@preview/greet:0.1.0"), fetched)
 
         // Another bundle finds it in the cache, without any fetcher.
-        assertEquals("HELLO WORLD", text(open(main).use { it.compile(300f, 12f, 420f) }))
+        assertEquals("HELLO WORLD", text(open(main).use { it.compile(300f, 420f) }))
     }
 
     @Test
@@ -105,7 +105,7 @@ class PackagesTest {
             }
         }
         val document = open("main.typ" to "#import \"@preview/greet:0.1.0\": hello\n#hello(\"World\")").use {
-            it.compile(300f, 12f, 420f, fetcher = fetcher)
+            it.compile(300f, 420f, fetcher = fetcher)
         }
         assertEquals("HELLO WORLD", text(document))
         assertEquals(listOf("@preview/greet:0.1.0", "@preview/punct:0.1.0"), fetched)
@@ -114,7 +114,7 @@ class PackagesTest {
     @Test
     fun reportsDownloadFailures() {
         val e = assertThrows(TypstCompileException::class.java) {
-            open(main).use { it.compile(300f, 12f, 420f) { throw IOException("offline") } }
+            open(main).use { it.compile(300f, 420f) { throw IOException("offline") } }
         }
         assertEquals("Couldn't download @preview/greet:0.1.0: offline", e.message)
     }
@@ -122,7 +122,7 @@ class PackagesTest {
     @Test
     fun reportsUnavailablePackagesWithoutCache() {
         val e = assertThrows(TypstCompileException::class.java) {
-            open(main, cache = null).use { it.compile(300f, 12f, 420f) }
+            open(main, cache = null).use { it.compile(300f, 420f) }
         }
         assertTrue(e.message, e.message!!.contains("package not found"))
         assertTrue(e.message, e.message!!.contains("@preview/greet:0.1.0"))
@@ -132,7 +132,7 @@ class PackagesTest {
     fun keepsArchivesInsideTheCache() {
         val escapee = File(cache.parentFile, "escaped-${System.nanoTime()}.typ")
         val archive = tarGz(greetPackage() + ("../../../../${escapee.name}" to "oops"))
-        open(main).use { it.compile(300f, 12f, 420f) { archive } }
+        open(main).use { it.compile(300f, 420f) { archive } }
         assertFalse(escapee.exists())
     }
 }

@@ -53,7 +53,7 @@ class TypstBundleTest {
     }
 
     private fun compileDocument(vararg files: Pair<String, String>): TypstDocument =
-        open(*files).use { it.compile(WIDTH, MARGIN, HEIGHT) }
+        open(*files).use { it.compile(WIDTH, HEIGHT) }
 
     private fun compile(vararg files: Pair<String, String>): List<TypstPage> =
         compileDocument(*files).pages
@@ -82,7 +82,7 @@ class TypstBundleTest {
                 doc
               } else {
                 let height = eval(sys.inputs.at("ebook-height"))
-                set page(width: eval(width), height: height, margin: eval(sys.inputs.at("ebook-margin")))
+                set page(width: eval(width), height: height, margin: ${MARGIN}pt)
                 doc
               }
             }
@@ -93,10 +93,10 @@ class TypstBundleTest {
     fun passesGeometryAsInputs() {
         val text = """
             #assert.eq(sys.inputs.at("ebook-width"), "300.5pt")
-            #assert.eq(sys.inputs.at("ebook-margin"), "12pt")
             #assert.eq(sys.inputs.at("ebook-height"), "420.5pt")
+            #assert.eq(sys.inputs.keys(), ("ebook-width", "ebook-height"))
         """.trimIndent()
-        open("main.typ" to text).use { it.compile(300.5f, MARGIN, 420.5f) }
+        open("main.typ" to text).use { it.compile(300.5f, 420.5f) }
     }
 
     @Test
@@ -185,10 +185,10 @@ class TypstBundleTest {
         val main = "main.typ" to "#set text(font: \"Lobster\", fallback: false)\nHello".toByteArray()
         // Without the downloaded font, Typst warns that it doesn't know the family; with it, not.
         TypstBundle.open(TypzContents("main.typ", mapOf(main))).use {
-            assertTrue(it.compile(WIDTH, MARGIN, HEIGHT).warnings.contains("unknown font family: lobster"))
+            assertTrue(it.compile(WIDTH, HEIGHT).warnings.contains("unknown font family: lobster"))
         }
         TypstBundle.open(TypzContents("main.typ", mapOf(main)), fonts = fonts).use {
-            assertEquals("", it.compile(WIDTH, MARGIN, HEIGHT).warnings)
+            assertEquals("", it.compile(WIDTH, HEIGHT).warnings)
         }
         // Fetched again, it comes from the cache.
         assertEquals(fonts.size, GoogleFonts(cache).fetch("Lobster").size)
@@ -235,9 +235,9 @@ class TypstBundleTest {
     @Test
     fun recompilesAtNewWidth() {
         open(*reflowable("Hello")).use { bundle ->
-            assertEquals(300f, bundle.compile(300f, MARGIN, HEIGHT).pages.single().widthPt, 0.01f)
-            assertEquals(420f, bundle.compile(420f, MARGIN, HEIGHT).pages.single().widthPt, 0.01f)
-            assertEquals(300f, bundle.compile(300f, MARGIN, HEIGHT).pages.single().widthPt, 0.01f)
+            assertEquals(300f, bundle.compile(300f, HEIGHT).pages.single().widthPt, 0.01f)
+            assertEquals(420f, bundle.compile(420f, HEIGHT).pages.single().widthPt, 0.01f)
+            assertEquals(300f, bundle.compile(300f, HEIGHT).pages.single().widthPt, 0.01f)
         }
     }
 
@@ -304,12 +304,12 @@ class TypstBundleTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsBadWidth() {
-        open("main.typ" to "Hello").use { it.compile(0f, MARGIN, HEIGHT) }
+        open("main.typ" to "Hello").use { it.compile(0f, HEIGHT) }
     }
 
     @Test(expected = IllegalArgumentException::class)
     fun rejectsBadHeight() {
-        open("main.typ" to "Hello").use { it.compile(WIDTH, MARGIN, 0f) }
+        open("main.typ" to "Hello").use { it.compile(WIDTH, 0f) }
     }
 
     private companion object {

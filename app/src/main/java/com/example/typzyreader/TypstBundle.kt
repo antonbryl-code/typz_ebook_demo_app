@@ -49,9 +49,9 @@ class TypstBundle private constructor(
      * process, which scans fonts), so call it off the main thread.
      *
      * The view's geometry is offered to the document as `sys.inputs` strings in Typst length
-     * syntax: `ebook-width` ("[widthPt]pt"), `ebook-height` ("[heightPt]pt") and `ebook-margin`
-     * ("[marginPt]pt"). Documents that support reflowing use them to lay out their pages to fit
-     * the view; others render as authored. See viewer_inputs.rs for an example `conf` function.
+     * syntax: `ebook-width` ("[widthPt]pt") and `ebook-height` ("[heightPt]pt"). Documents that
+     * support reflowing use them to lay out their pages to fit the view, choosing their own
+     * margins; others render as authored. See viewer_inputs.rs for an example `conf` function.
      *
      * Packages (`#import "@preview/…"`) come from the bundle's `packages/` directory, else from
      * the package cache given to [open]; `@preview` packages found in neither are obtained with
@@ -62,13 +62,12 @@ class TypstBundle private constructor(
     @Synchronized
     fun compile(
         widthPt: Float,
-        marginPt: Float,
         heightPt: Float,
         fetcher: PackageFetcher? = null,
     ): TypstDocument {
         val installed = mutableSetOf<String>()
         while (true) {
-            val result = TypstNative.compile(checkOpen(), widthPt, marginPt, heightPt)
+            val result = TypstNative.compile(checkOpen(), widthPt, heightPt)
             val (sizes, svgs, layers, warnings, missing) = result
             if (missing == null) {
                 sizes as FloatArray
