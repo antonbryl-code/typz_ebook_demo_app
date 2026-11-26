@@ -172,7 +172,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
     val density = LocalDensity.current.density
     // Saved, so the document comes back if Android recreates the activity or restores the process.
     var uri by rememberSaveable { mutableStateOf<Uri?>(null) }
-    // A file asked to be opened, until its format is checked; a refused one leaves [uri] alone.
+    // A file asked to be opened, until its manifest is checked; a refused one leaves [uri] alone.
     var requestedUri by rememberSaveable { mutableStateOf(initialUri) }
     var refusal by remember { mutableStateOf<String?>(null) }
     var cover by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -232,7 +232,7 @@ fun TypzViewer(initialUri: Uri?, modifier: Modifier = Modifier) {
 
     LaunchedEffect(requestedUri) {
         val requested = requestedUri ?: return@LaunchedEffect
-        val problem = withContext(Dispatchers.IO) { formatProblemOf(context, requested) }
+        val problem = withContext(Dispatchers.IO) { manifestProblemOf(context, requested) }
         if (problem == null) uri = requested else refusal = problem
         requestedUri = null
     }
@@ -789,13 +789,13 @@ private fun describe(shown: ViewerContent.Document, currentSection: Int?): Strin
 }
 
 /**
- * Why the format named by the manifest of the file at [uri] can't be opened (see
- * [TypzArchive.formatProblem]), null if it can.
+ * Why the manifest of the file at [uri] keeps it from being opened, such as a missing
+ * `[tool.typz-ebook]` section (see [TypzArchive.manifestProblem]); null if it doesn't.
  */
-private fun formatProblemOf(context: Context, uri: Uri): String? = try {
-    context.contentResolver.openInputStream(uri)?.use { TypzArchive.formatProblem(TypzArchive.format(it)) }
+private fun manifestProblemOf(context: Context, uri: Uri): String? = try {
+    context.contentResolver.openInputStream(uri)?.use { TypzArchive.manifestProblem(it) }
 } catch (_: Exception) {
-    // E.g. not a zip, or no or a malformed manifest: opening it reports that, in place of the document.
+    // E.g. not a zip, or no manifest: opening it reports that, in place of the document.
     null
 }
 

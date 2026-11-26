@@ -77,22 +77,20 @@ class TypzViewerTest {
     }
 
     /**
-     * Writes a .typz whose manifest names [format] (none if null) and has [tool] in its
-     * `[tool.typzy-reader]` section.
+     * Writes a .typz whose manifest has [tool] in its `[tool.typz-ebook]` section, or no such
+     * section if [tool] is null.
      */
     private fun writeTypz(
         mainTyp: String = """
             #set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")))
             Hello
         """.trimIndent(),
-        format: String? = "flexible-traditional-book",
-        tool: String = "",
+        tool: String? = "",
         name: String = "viewer-test.typz",
         extraFiles: Map<String, ByteArray> = emptyMap(),
     ): File {
-        val toolSection = format?.let { "format = \"$it\"\n" }.orEmpty() + tool
         val manifest = "[project]\nentrypoint = \"main.typ\"\n" +
-            if (toolSection.isEmpty()) "" else "[tool.typzy-reader]\n$toolSection"
+            tool?.let { "[tool.typz-ebook]\n$it" }.orEmpty()
         val files = mapOf(
             "typst.toml" to manifest.toByteArray(),
             "main.typ" to mainTyp.toByteArray(),
@@ -154,11 +152,11 @@ class TypzViewerTest {
     }
 
     /**
-     * Opens a .typz in [format] (none if null) and expects a dialog with [message] and no
-     * document behind it.
+     * Opens a .typz whose manifest has [tool] as its `[tool.typz-ebook]` section (none if null)
+     * and expects a dialog with [message] and no document behind it.
      */
-    private fun assertRefused(format: String?, message: String) {
-        val uri = Uri.fromFile(writeTypz(format = format))
+    private fun assertRefused(tool: String?, message: String) {
+        val uri = Uri.fromFile(writeTypz(tool = tool))
         compose.setContent {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }
@@ -182,7 +180,7 @@ class TypzViewerTest {
             #pagebreak()
             = Two
         """.trimIndent()
-        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, format = "book"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp))
         compose.setContent {
             // Taller than 1.25 times its width: one page at a time, as large as the view.
             Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
@@ -209,7 +207,7 @@ class TypzViewerTest {
               margin: eval(sys.inputs.at("ebook-margin")),
             )
         """.trimIndent() + "\n" + chapters
-        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, format = "book"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp))
         var portrait by mutableStateOf(true)
         compose.setContent {
             // Like a phone turning: one page at a time upright, pages scrolled sideways.
@@ -247,7 +245,7 @@ class TypzViewerTest {
         // reader is still in Chapter 3 at the new size.
         val chapters = (1..4).joinToString("\n") { "#pagebreak(weak: true)\n= Chapter $it\n#lorem(500)" }
         val setup = """#set page(width: eval(sys.inputs.at("ebook-width")), height: eval(sys.inputs.at("ebook-height")), margin: eval(sys.inputs.at("ebook-margin")))"""
-        val uri = Uri.fromFile(writeTypz(mainTyp = setup + "\n" + chapters, format = "book"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = setup + "\n" + chapters))
         compose.setContent {
             Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
         }
@@ -283,7 +281,7 @@ class TypzViewerTest {
               margin: eval(sys.inputs.at("ebook-margin")),
             )
         """.trimIndent() + "\n" + chapters
-        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp, format = "book"))
+        val uri = Uri.fromFile(writeTypz(mainTyp = mainTyp))
         compose.setContent {
             Box(Modifier.width(400.dp).height(700.dp)) { TypzViewer(initialUri = uri) }
         }
@@ -301,23 +299,13 @@ class TypzViewerTest {
     }
 
     @Test
-    fun refusesUnknownFormat() {
-        assertRefused("scroll", "\"scroll\" is an unknown value for the \"format\" parameter.")
+    fun refusesManifestsWithoutTheTypzEbookSection() {
+        assertRefused(null, "No [tool.typz-ebook] section in typst.toml")
     }
 
     @Test
-    fun refusesThePagelessFormatAsDeprecated() {
-        assertRefused("pageless", "The \"pageless\" format is deprecated.")
-    }
-
-    @Test
-    fun refusesManifestsWithoutAFormat() {
-        assertRefused(null, "The manifest must specify format, e.g. flexible-traditional-book")
-    }
-
-    @Test
-    fun opensTheBookSynonym() {
-        val uri = Uri.fromFile(writeTypz(format = "book"))
+    fun opensFilesThatStillNameAFormat() {
+        val uri = Uri.fromFile(writeTypz(tool = "format = \"pageless\"\n"))
         compose.setContent {
             Box(Modifier.width(400.dp)) { TypzViewer(initialUri = uri) }
         }

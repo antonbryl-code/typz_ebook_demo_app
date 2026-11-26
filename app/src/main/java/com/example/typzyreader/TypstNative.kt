@@ -28,18 +28,18 @@ internal object TypstNative {
      */
     external fun manifestEntrypoint(manifest: ByteArray): String
     /**
-     * The `format` in the `[tool.typzy-reader]` section of a typst.toml, or null if it names
-     * none. Throws [TypzFormatException] if the manifest is malformed.
+     * Throws [TypzFormatException] if a typst.toml is malformed or has no `[tool.typz-ebook]`
+     * section, which every .typz must have.
      */
-    external fun manifestFormat(manifest: ByteArray): String?
+    external fun manifestCheckSection(manifest: ByteArray)
     /**
-     * The `cover-img` in the `[tool.typzy-reader]` section of a typst.toml, as a normalized path
+     * The `cover-img` in the `[tool.typz-ebook]` section of a typst.toml, as a normalized path
      * from the root of the .typz; null if it names none or the path can't be inside the .typz.
      * Throws [TypzFormatException] if the manifest is malformed.
      */
     external fun manifestCoverImg(manifest: ByteArray): String?
     /**
-     * The `required-fonts` in the `[tool.typzy-reader]` section of a typst.toml: font family
+     * The `required-fonts` in the `[tool.typz-ebook]` section of a typst.toml: font family
      * names, as written. Throws [TypzFormatException] if the manifest is malformed.
      */
     external fun manifestRequiredFonts(manifest: ByteArray): Array<String>

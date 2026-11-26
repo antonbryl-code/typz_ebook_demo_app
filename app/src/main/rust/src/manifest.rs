@@ -1,12 +1,12 @@
-//! The `typst.toml` manifest at the root of a .typz file, which names the file to compile, the
-//! format the document is meant to be read in and, optionally, the image of its cover:
+//! The `typst.toml` manifest at the root of a .typz file, which names the file to compile and
+//! has a `[tool.typz-ebook]` section, required even if empty, with optional settings such as
+//! the image of its cover:
 //!
 //! ```toml
 //! [project]
 //! entrypoint = "main.typ"
 //!
-//! [tool.typzy-reader]
-//! format = "flexible-traditional-book"
+//! [tool.typz-ebook]
 //! cover-img = "images/cover.png"
 //! required-fonts = ["Inter", "Noto Serif"]
 //! ```
@@ -31,17 +31,20 @@ pub fn entrypoint(manifest: &[u8]) -> Result<String, String> {
     }
 }
 
-/// The `format` of the manifest's `[tool.typzy-reader]` section, None if there is none. Not
-/// checked against the known formats; a value that isn't a string comes back as TOML.
-pub fn format(manifest: &[u8]) -> Result<Option<String>, String> {
+/// The name of the manifest's own section, under `[tool]`.
+const SECTION: &str = "typz-ebook";
+
+/// Checks that the manifest has a `[tool.typz-ebook]` section, which every .typz file must have.
+pub fn check_section(manifest: &[u8]) -> Result<(), String> {
     let table = parse(manifest)?;
-    Ok(tool_field(&table, "format").map(|format| match format {
-        Value::String(format) => format.clone(),
-        other => other.to_string(),
-    }))
+    match table.get("tool").and_then(Value::as_table).and_then(|tool| tool.get(SECTION)) {
+        Some(Value::Table(_)) => Ok(()),
+        Some(_) => Err(format!("tool.{SECTION} in typst.toml is not a section")),
+        None => Err(format!("No [tool.{SECTION}] section in typst.toml")),
+    }
 }
 
-/// The `cover-img` of the manifest's `[tool.typzy-reader]` section, as a normalized path from the
+/// The `cover-img` of the manifest's `[tool.typz-ebook]` section, as a normalized path from the
 /// root of the .typz file. None if there is none, or if it can't be a path inside the .typz file:
 /// a book with an unusable cover is still readable, and gets the default cover.
 pub fn cover_img(manifest: &[u8]) -> Result<Option<String>, String> {
@@ -53,7 +56,7 @@ pub fn cover_img(manifest: &[u8]) -> Result<Option<String>, String> {
         .filter(|path| !path.is_empty()))
 }
 
-/// The `required-fonts` of the manifest's `[tool.typzy-reader]` section: font family names, as
+/// The `required-fonts` of the manifest's `[tool.typz-ebook]` section: font family names, as
 /// written there (and so as Google Fonts spells them), without blanks or repeats. Values that
 /// aren't strings are left out.
 pub fn required_fonts(manifest: &[u8]) -> Result<Vec<String>, String> {
@@ -69,12 +72,12 @@ pub fn required_fonts(manifest: &[u8]) -> Result<Vec<String>, String> {
     Ok(fonts)
 }
 
-/// A field of the `[tool.typzy-reader]` section, if there is one.
+/// A field of the `[tool.typz-ebook]` section, if there is one.
 fn tool_field<'a>(table: &'a Table, name: &str) -> Option<&'a Value> {
     table
         .get("tool")
         .and_then(Value::as_table)
-        .and_then(|tool| tool.get("typzy-reader"))
+        .and_then(|tool| tool.get(SECTION))
         .and_then(Value::as_table)
         .and_then(|section| section.get(name))
 }
@@ -86,7 +89,7 @@ fn parse(manifest: &[u8]) -> Result<Table, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cover_img, entrypoint, format, required_fonts};
+    use super::{check_section, cover_img, entrypoint, required_fonts};
 
     #[test]
     fn reads_project_entrypoint() {
@@ -113,48 +116,46 @@ mod tests {
         assert!(entrypoint(b"[project]\nentrypoint = \"  \"").is_err());
         assert!(entrypoint(b"project = 1").is_err());
         assert!(entrypoint(b"\xff").is_err());
-        assert!(format(b"[tool\n").is_err());
+        assert!(check_section(b"[tool\n").is_err());
     }
 
     #[test]
-    fn reads_format() {
-        assert_eq!(format(b"[tool.typzy-reader]\nformat = \"book\""), Ok(Some("book".into())));
-        assert_eq!(format(b"[tool.typzy-reader]\nformat = \"other\""), Ok(Some("other".into())));
+    fn accepts_the_section_even_if_empty() {
+        assert_eq!(check_section(b"[tool.typz-ebook]"), Ok(()));
+        assert_eq!(check_section(b"[project]\nentrypoint = \"a.typ\"\n[tool.typz-ebook]\ncover-img = \"c.png\""), Ok(()));
+        assert_eq!(check_section(b"tool.typz-ebook = {}"), Ok(()));
     }
 
     #[test]
-    fn has_no_format_unless_named() {
-        assert_eq!(format(b"[project]\nentrypoint = \"a.typ\""), Ok(None));
-        assert_eq!(format(b"[tool.typzy-reader]\nother = 1"), Ok(None));
-        assert_eq!(format(b"[tool.other]\nformat = \"book\""), Ok(None));
-    }
-
-    #[test]
-    fn shows_other_format_values_as_toml() {
-        assert_eq!(format(b"[tool.typzy-reader]\nformat = 3"), Ok(Some("3".into())));
+    fn requires_the_section() {
+        let missing = Err("No [tool.typz-ebook] section in typst.toml".to_owned());
+        assert_eq!(check_section(b"[project]\nentrypoint = \"a.typ\""), missing);
+        assert_eq!(check_section(b"[tool.typzy-reader]\ncover-img = \"c.png\""), missing);
+        assert_eq!(check_section(b"tool = 1"), missing);
+        assert!(check_section(b"[tool]\ntypz-ebook = 1").is_err());
     }
 
     #[test]
     fn reads_required_fonts() {
-        let manifest = b"[tool.typzy-reader]\nrequired-fonts = [\"Inter\", \" Noto Serif \", 3, \"\", \"Inter\"]";
+        let manifest = b"[tool.typz-ebook]\nrequired-fonts = [\"Inter\", \" Noto Serif \", 3, \"\", \"Inter\"]";
         assert_eq!(required_fonts(manifest), Ok(vec!["Inter".to_owned(), "Noto Serif".to_owned()]));
         assert_eq!(required_fonts(b"[project]\nentrypoint = \"a.typ\""), Ok(vec![]));
-        assert_eq!(required_fonts(b"[tool.typzy-reader]\nrequired-fonts = \"Inter\""), Ok(vec![]));
+        assert_eq!(required_fonts(b"[tool.typz-ebook]\nrequired-fonts = \"Inter\""), Ok(vec![]));
     }
 
     #[test]
     fn normalizes_cover_img() {
-        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = \"images/c.png\""), Ok(Some("images/c.png".into())));
-        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = \"./images/../c.png\""), Ok(Some("c.png".into())));
+        assert_eq!(cover_img(b"[tool.typz-ebook]\ncover-img = \"images/c.png\""), Ok(Some("images/c.png".into())));
+        assert_eq!(cover_img(b"[tool.typz-ebook]\ncover-img = \"./images/../c.png\""), Ok(Some("c.png".into())));
     }
 
     #[test]
     fn has_no_cover_img_without_a_usable_path() {
         assert_eq!(cover_img(b"[project]\nentrypoint = \"a.typ\""), Ok(None));
-        assert_eq!(cover_img(b"[tool.typzy-reader]\nformat = \"book\""), Ok(None));
-        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = 3"), Ok(None));
-        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = \"\""), Ok(None));
-        assert_eq!(cover_img(b"[tool.typzy-reader]\ncover-img = \"../c.png\""), Ok(None));
+        assert_eq!(cover_img(b"[tool.typz-ebook]"), Ok(None));
+        assert_eq!(cover_img(b"[tool.typz-ebook]\ncover-img = 3"), Ok(None));
+        assert_eq!(cover_img(b"[tool.typz-ebook]\ncover-img = \"\""), Ok(None));
+        assert_eq!(cover_img(b"[tool.typz-ebook]\ncover-img = \"../c.png\""), Ok(None));
         assert!(cover_img(b"[tool\n").is_err());
     }
 }

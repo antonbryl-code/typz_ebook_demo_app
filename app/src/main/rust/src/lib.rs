@@ -159,20 +159,17 @@ pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestEntrypoi
     })
 }
 
-/// `TypstNative.manifestFormat(manifest)`: the format named by a `typst.toml`, or null if it
-/// names none (see [`manifest`]). Throws TypzFormatException if the manifest is malformed.
+/// `TypstNative.manifestCheckSection(manifest)`: throws TypzFormatException if a `typst.toml`
+/// is malformed or has no `[tool.typz-ebook]` section (see [`manifest`]).
 #[no_mangle]
-pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestFormat<'local>(
+pub extern "system" fn Java_com_example_typzyreader_TypstNative_manifestCheckSection<'local>(
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     manifest: JByteArray<'local>,
-) -> jstring {
-    guard(&mut env, std::ptr::null_mut(), |env| {
+) {
+    guard(&mut env, (), |env| {
         let manifest = env.convert_byte_array(&manifest)?;
-        match manifest::format(&manifest).map_err(|e| Error::new(FORMAT_EXCEPTION, e))? {
-            Some(format) => Ok(env.new_string(format)?.into_raw()),
-            None => Ok(std::ptr::null_mut()),
-        }
+        manifest::check_section(&manifest).map_err(|e| Error::new(FORMAT_EXCEPTION, e))
     })
 }
 

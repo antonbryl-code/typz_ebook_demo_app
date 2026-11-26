@@ -45,34 +45,9 @@ class TypzArchiveTest {
         assertNull(TypzContents("main.typ", files).coverImage)
     }
 
-    @Test
-    fun acceptsTheFlexibleTraditionalBookFormatAndItsSynonym() {
-        assertEquals(TypzFormat.FLEXIBLE_TRADITIONAL_BOOK, TypzFormat.of("flexible-traditional-book"))
-        assertEquals(TypzFormat.FLEXIBLE_TRADITIONAL_BOOK, TypzFormat.of("book"))
-        assertNull(TypzArchive.formatProblem("flexible-traditional-book"))
-        assertNull(TypzArchive.formatProblem("book"))
-        assertNull(TypzFormat.of("Book"))
-        assertEquals("\"Book\" is an unknown value for the \"format\" parameter.", TypzArchive.formatProblem("Book"))
-        assertEquals("\"\" is an unknown value for the \"format\" parameter.", TypzArchive.formatProblem(""))
-    }
-
-    @Test
-    fun refusesThePagelessFormatAsDeprecated() {
-        assertNull(TypzFormat.of("pageless"))
-        assertEquals("The \"pageless\" format is deprecated.", TypzArchive.formatProblem("pageless"))
-    }
-
-    @Test
-    fun requiresAFormat() {
-        assertEquals(
-            "The manifest must specify format, e.g. flexible-traditional-book",
-            TypzArchive.formatProblem(null),
-        )
-    }
-
     @Test(expected = TypzFormatException::class)
-    fun hasNoFormatWithoutManifest() {
-        TypzArchive.format(zip("main.typ" to "= Hello"))
+    fun hasNoManifestProblemWithoutManifest() {
+        TypzArchive.manifestProblem(zip("main.typ" to "= Hello"))
     }
 
     @Test(expected = TypzFormatException::class)
